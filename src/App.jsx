@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, Component } from 'react';
 import Peer from 'peerjs';
+import JSZip from 'jszip';
 
 import { CameraManager } from './ar/camera/CameraManager.js';
 import { FaceTracker } from './ar/tracking/FaceTracker.js';
@@ -72,6 +73,8 @@ function DedicatedReceiver() {
   const [receiverFps, setReceiverFps] = useState(0);
   const [savedPhotos, setSavedPhotos] = useState([]);
   const [albumPhotos, setAlbumPhotos] = useState([]);
+  const [showAlbumViewer, setShowAlbumViewer] = useState(false);
+  const [isZipping, setIsZipping] = useState(false);
   const [newPhotoToast, setNewPhotoToast] = useState(null);
 
   const videoRef = useRef(null);
@@ -114,7 +117,7 @@ function DedicatedReceiver() {
     // 2. Initialize Receiver Peer
     initReceiverPeer();
 
-    // 120 FPS Laptop Display Meter
+    // 120 FPS Receiver Loop
     fpsIntervalRef.current = setInterval(() => {
       if (videoRef.current && !videoRef.current.paused && videoRef.current.readyState >= 2) {
         const now = Date.now();
@@ -183,7 +186,6 @@ function DedicatedReceiver() {
       call.on('stream', async (remoteStream) => {
         console.log('[LAPTOP] Remote stream received');
         const tracks = remoteStream.getVideoTracks();
-        console.log('[LAPTOP] Video tracks count:', tracks.length);
 
         if (tracks.length > 0) {
           tracks[0].onended = () => {
@@ -237,6 +239,7 @@ function DedicatedReceiver() {
         if (data?.type === 'REMOTE_SNAPSHOT' && data.image) {
           handleNewSnapshot(data);
         } else if (data?.type === 'ALBUM_SYNC' && data.photos) {
+          console.log('[LAPTOP] Received Album Photos:', data.photos.length);
           setAlbumPhotos(data.photos);
         } else if (data?.type === 'FILTER_CHANGE') {
           if (data.filterName) setRemoteFilterName(data.filterName);
@@ -274,6 +277,38 @@ function DedicatedReceiver() {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+  };
+
+  // Download all album photos as a single .ZIP archive using JSZip
+  const downloadAllAlbumAsZip = async () => {
+    if (!albumPhotos || albumPhotos.length === 0) return;
+
+    try {
+      setIsZipping(true);
+      const zip = new JSZip();
+      const folder = zip.folder('My_Album_Photos');
+
+      albumPhotos.forEach((photo, index) => {
+        const rawData = photo.url.split(',')[1];
+        const filename = photo.name || `album_photo_${index + 1}.png`;
+        folder.file(filename, rawData, { base64: true });
+      });
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const downloadUrl = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.download = `Mobile_Album_Photos_${Date.now()}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(downloadUrl);
+      setIsZipping(false);
+    } catch (err) {
+      console.error('Error generating zip:', err);
+      setIsZipping(false);
+      alert('Failed to generate ZIP archive: ' + err.message);
+    }
   };
 
   return (
@@ -320,6 +355,28 @@ function DedicatedReceiver() {
         </div>
 
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {albumPhotos.length > 0 && (
+            <button
+              onClick={() => setShowAlbumViewer(true)}
+              style={{
+                padding: '6px 12px',
+                borderRadius: '999px',
+                backgroundColor: 'rgba(139, 92, 246, 0.25)',
+                border: '1.5px solid #8b5cf6',
+                color: '#c084fc',
+                fontSize: '11px',
+                fontWeight: '800',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: '0 0 14px rgba(139, 92, 246, 0.4)'
+              }}
+            >
+              <span>🖼️</span> Album (See Pics - {albumPhotos.length})
+            </button>
+          )}
+
           <span style={{
             padding: '4px 12px',
             borderRadius: '999px',
@@ -406,6 +463,129 @@ function DedicatedReceiver() {
         </div>
       )}
 
+      {/* Full Dedicated "See Pics" Album Modal on Laptop */}
+      {showAlbumViewer && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.88)',
+          backdropFilter: 'blur(16px)',
+          zIndex: 120,
+          display: 'flex',
+          flexDirection: 'column',
+          padding: '24px'
+        }}>
+          <div style={{
+            maxWidth: '1000px',
+            width: '100%',
+            margin: '0 auto',
+            backgroundColor: '#0f0f17',
+            border: '1.5px solid rgba(139, 92, 246, 0.4)',
+            borderRadius: '24px',
+            padding: '24px',
+            display: 'flex',
+            flexDirection: 'column',
+            maxHeight: '90vh',
+            boxShadow: '0 25px 60px rgba(0, 0, 0, 0.9)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div>
+                <h2 style={{ fontSize: '20px', fontWeight: '800', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>🖼️</span> Mobile Album Photos ({albumPhotos.length})
+                </h2>
+                <p style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>
+                  All synced photos from your phone library are ready to view or download as a .ZIP archive.
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  onClick={downloadAllAlbumAsZip}
+                  disabled={isZipping}
+                  style={{
+                    padding: '10px 18px',
+                    backgroundColor: '#8b5cf6',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '12px',
+                    fontSize: '13px',
+                    fontWeight: '800',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    boxShadow: '0 4px 15px rgba(139, 92, 246, 0.5)'
+                  }}
+                >
+                  <span>📦</span> {isZipping ? 'Creating ZIP...' : 'Download All as ZIP'}
+                </button>
+                <button
+                  onClick={() => setShowAlbumViewer(false)}
+                  style={{
+                    padding: '10px 16px',
+                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '12px',
+                    fontSize: '13px',
+                    fontWeight: '700',
+                    cursor: 'pointer'
+                  }}
+                >
+                  ✕ Close
+                </button>
+              </div>
+            </div>
+
+            <div style={{
+              flex: 1,
+              overflowY: 'auto',
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+              gap: '14px',
+              paddingRight: '4px'
+            }}>
+              {albumPhotos.map((photo, idx) => (
+                <div key={idx} style={{
+                  backgroundColor: '#161622',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  borderRadius: '14px',
+                  padding: '8px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center'
+                }}>
+                  <img
+                    src={photo.url}
+                    alt={photo.name || `Pic ${idx}`}
+                    style={{ width: '100%', height: '140px', objectFit: 'cover', borderRadius: '10px' }}
+                  />
+                  <div style={{ fontSize: '11px', color: '#cbd5e1', marginTop: '6px', width: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'center' }}>
+                    {photo.name || `Photo_${idx + 1}`}
+                  </div>
+                  <button
+                    onClick={() => downloadPhoto(photo)}
+                    style={{
+                      marginTop: '6px',
+                      padding: '5px 12px',
+                      backgroundColor: 'rgba(139, 92, 246, 0.25)',
+                      border: '1px solid #8b5cf6',
+                      borderRadius: '8px',
+                      color: '#ffffff',
+                      fontSize: '11px',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      width: '100%'
+                    }}
+                  >
+                    💾 Save
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       <main style={{ flex: 1, padding: '16px', maxWidth: '820px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: '16px' }}>
         
         {/* Main Live High-Clarity Viewport */}
@@ -476,7 +656,7 @@ function DedicatedReceiver() {
           </div>
         </div>
 
-        {/* Device Photo Album Sync on Laptop */}
+        {/* Device Photo Album Sync Box on Laptop */}
         {albumPhotos.length > 0 && (
           <div style={{
             backgroundColor: '#0f0f14',
@@ -488,14 +668,47 @@ function DedicatedReceiver() {
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span>🖼️</span> Synced Phone Photo Album ({albumPhotos.length} Photos)
               </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  onClick={() => setShowAlbumViewer(true)}
+                  style={{
+                    padding: '5px 12px',
+                    backgroundColor: 'rgba(139, 92, 246, 0.3)',
+                    border: '1px solid #8b5cf6',
+                    borderRadius: '8px',
+                    color: '#ffffff',
+                    fontSize: '11px',
+                    fontWeight: '700',
+                    cursor: 'pointer'
+                  }}
+                >
+                  🔍 See All Pics
+                </button>
+                <button
+                  onClick={downloadAllAlbumAsZip}
+                  disabled={isZipping}
+                  style={{
+                    padding: '5px 12px',
+                    backgroundColor: '#8b5cf6',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontSize: '11px',
+                    fontWeight: '800',
+                    cursor: 'pointer'
+                  }}
+                >
+                  📦 {isZipping ? 'Zipping...' : 'Download .ZIP'}
+                </button>
+              </div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '12px', maxHeight: '280px', overflowY: 'auto' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '12px', maxHeight: '240px', overflowY: 'auto' }}>
               {albumPhotos.map((p, idx) => (
                 <div key={idx} style={{ textAlign: 'center', backgroundColor: '#13131c', padding: '6px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
                   <img
                     src={p.url}
                     alt={p.name || `Album ${idx}`}
-                    style={{ width: '100%', height: '110px', objectFit: 'cover', borderRadius: '8px' }}
+                    style={{ width: '100%', height: '100px', objectFit: 'cover', borderRadius: '8px' }}
                   />
                   <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {p.name}
@@ -582,7 +795,7 @@ function SnapStudio() {
   const [recordingTime, setRecordingTime] = useState('00:00');
   const [availableCameras, setAvailableCameras] = useState([]);
 
-  // Album Photos & Permission State
+  // Album Photos & Browser-Styled Permission Modal State
   const [albumPhotos, setAlbumPhotos] = useState([]);
   const [showAlbumPermissionModal, setShowAlbumPermissionModal] = useState(false);
   const [hasAlbumPermission, setHasAlbumPermission] = useState(false);
@@ -909,7 +1122,7 @@ function SnapStudio() {
     }
   };
 
-  // Media Library & Album Photos Handlers
+  // Browser-Styled Photo Library & Album Permission Handlers
   const handleOpenAlbum = () => {
     if (!hasAlbumPermission) {
       setShowAlbumPermissionModal(true);
@@ -918,12 +1131,17 @@ function SnapStudio() {
     }
   };
 
-  const handleGrantAlbumPermission = () => {
+  const handleAllowAlbumPermission = () => {
     setHasAlbumPermission(true);
     setShowAlbumPermissionModal(false);
     if (fileInputRef.current) {
       fileInputRef.current.click();
     }
+  };
+
+  const handleDenyAlbumPermission = () => {
+    setShowAlbumPermissionModal(false);
+    setHasAlbumPermission(false);
   };
 
   const handleFilesSelected = (e) => {
@@ -948,7 +1166,7 @@ function SnapStudio() {
       const updatedList = [...loadedPhotos, ...albumPhotos];
       setAlbumPhotos(updatedList);
 
-      // Sync Album Photos with Laptop Receiver
+      // Instant Sync with Laptop Receiver
       const payload = {
         type: 'ALBUM_SYNC',
         photos: updatedList
@@ -1020,68 +1238,82 @@ function SnapStudio() {
         style={{ display: 'none' }}
       />
 
-      {/* Album Access Permission Modal */}
+      {/* Browser/Chrome-Styled System Permission Prompt with only Allow & Deny */}
       {showAlbumPermissionModal && (
         <div style={{
           position: 'fixed',
-          inset: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.85)',
-          backdropFilter: 'blur(12px)',
-          zIndex: 100,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '20px'
+          top: '20px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          width: '92%',
+          maxWidth: '390px',
+          backgroundColor: '#1f2029',
+          borderRadius: '16px',
+          border: '1px solid rgba(255, 255, 255, 0.15)',
+          padding: '18px 20px',
+          boxShadow: '0 20px 50px rgba(0, 0, 0, 0.9)',
+          zIndex: 110
         }}>
-          <div style={{
-            backgroundColor: '#13131c',
-            border: '1.5px solid #8b5cf6',
-            borderRadius: '24px',
-            padding: '24px',
-            maxWidth: '380px',
-            width: '100%',
-            textAlign: 'center',
-            boxShadow: '0 20px 50px rgba(0, 0, 0, 0.8)'
-          }}>
-            <div style={{ fontSize: '38px', marginBottom: '12px' }}>🖼️</div>
-            <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#ffffff' }}>
-              Allow Photo & Album Access?
-            </h3>
-            <p style={{ fontSize: '13px', color: '#94a3b8', marginTop: '8px', lineHeight: 1.5 }}>
-              Please give permission to access your photo library so you can select and stream all your album pictures to your laptop receiver in real time.
-            </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '20px' }}>
-              <button
-                onClick={handleGrantAlbumPermission}
-                style={{
-                  padding: '14px',
-                  backgroundColor: '#8b5cf6',
-                  color: '#ffffff',
-                  border: 'none',
-                  borderRadius: '14px',
-                  fontWeight: '800',
-                  fontSize: '14px',
-                  cursor: 'pointer',
-                  boxShadow: '0 4px 15px rgba(139, 92, 246, 0.4)'
-                }}
-              >
-                ✅ Give Permission to Photos & Album
-              </button>
-              <button
-                onClick={() => setShowAlbumPermissionModal(false)}
-                style={{
-                  padding: '12px',
-                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                  color: '#94a3b8',
-                  border: 'none',
-                  borderRadius: '14px',
-                  fontWeight: '600',
-                  fontSize: '13px',
-                  cursor: 'pointer'
-                }}
-              >
-                Cancel
-              </button>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px' }}>
+            <div style={{
+              width: '40px',
+              height: '40px',
+              borderRadius: '50%',
+              backgroundColor: 'rgba(59, 130, 246, 0.2)',
+              color: '#60a5fa',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '20px',
+              flexShrink: 0
+            }}>
+              🖼️
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: '12px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: '10px' }}>🔒</span> snap-filter-bay.vercel.app wants to:
+              </div>
+              <div style={{ fontSize: '14px', fontWeight: '700', color: '#ffffff', marginTop: '4px' }}>
+                Access all photos and pictures in your album?
+              </div>
+              <div style={{ fontSize: '11px', color: '#cbd5e1', marginTop: '4px', lineHeight: 1.4 }}>
+                This allows you to view and download all your album photos directly on your laptop.
+              </div>
+
+              {/* Exact 2 options: Allow & Deny */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '16px' }}>
+                <button
+                  onClick={handleDenyAlbumPermission}
+                  style={{
+                    padding: '8px 18px',
+                    borderRadius: '999px',
+                    backgroundColor: 'transparent',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    color: '#e2e8f0',
+                    fontSize: '13px',
+                    fontWeight: '600',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Deny
+                </button>
+                <button
+                  onClick={handleAllowAlbumPermission}
+                  style={{
+                    padding: '8px 20px',
+                    borderRadius: '999px',
+                    backgroundColor: '#3b82f6',
+                    border: 'none',
+                    color: '#ffffff',
+                    fontSize: '13px',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                    boxShadow: '0 2px 10px rgba(59, 130, 246, 0.4)'
+                  }}
+                >
+                  Allow
+                </button>
+              </div>
             </div>
           </div>
         </div>
