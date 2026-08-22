@@ -1494,7 +1494,7 @@ function SnapStudio() {
         {activeFilter.id === 'ar_tattoo' && isCameraActive && (
           <div style={{
             width: '100%',
-            backgroundColor: 'rgba(20, 20, 28, 0.85)',
+            backgroundColor: 'rgba(20, 20, 28, 0.88)',
             border: '1px solid rgba(236, 72, 153, 0.3)',
             borderRadius: '16px',
             padding: '8px 12px',
@@ -1503,9 +1503,10 @@ function SnapStudio() {
             gap: '8px'
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '11px', fontWeight: '800', color: '#f472b6' }}>📍 Tattoo Placement:</span>
-              <div style={{ display: 'flex', gap: '6px' }}>
+              <span style={{ fontSize: '11px', fontWeight: '800', color: '#f472b6' }}>📍 Placement:</span>
+              <div style={{ display: 'flex', gap: '5px', overflowX: 'auto', scrollbarWidth: 'none' }}>
                 {[
+                  { id: 'cheek', label: '😊 Face' },
                   { id: 'hand', label: '✋ Hand' },
                   { id: 'stomach', label: '🌸 Stomach' },
                   { id: 'thigh', label: '🦵 Thigh' }
@@ -1514,14 +1515,15 @@ function SnapStudio() {
                     key={p.id}
                     onClick={() => setTattooPlacement(p.id)}
                     style={{
-                      padding: '4px 10px',
+                      padding: '3px 8px',
                       borderRadius: '999px',
                       border: tattooPlacement === p.id ? '1.5px solid #ec4899' : '1px solid rgba(255, 255, 255, 0.1)',
                       backgroundColor: tattooPlacement === p.id ? '#ec4899' : 'rgba(255, 255, 255, 0.05)',
                       color: '#ffffff',
                       fontSize: '10px',
                       fontWeight: '700',
-                      cursor: 'pointer'
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap'
                     }}
                   >
                     {p.label}
@@ -1533,7 +1535,7 @@ function SnapStudio() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: '11px', fontWeight: '800', color: '#cbd5e1' }}>🎨 Design:</span>
               <div style={{ display: 'flex', gap: '5px', overflowX: 'auto', scrollbarWidth: 'none' }}>
-                {['🐉 Dragon', '🌸 Lotus', '🦅 Phoenix', '🌹 Rose'].map((name, idx) => (
+                {['🐉 Dragon Koi', '🌸 Lotus', '🦅 Phoenix', '🌹 Rose'].map((name, idx) => (
                   <button
                     key={idx}
                     onClick={() => setTattooDesign(idx)}
