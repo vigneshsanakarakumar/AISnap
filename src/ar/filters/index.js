@@ -2,8 +2,9 @@
  * AR Filter Registry — Complete Modular AR Filter Engine
  */
 
-import { ARPiercingFilter } from './ARPiercingFilter.js';
+import { OriginalFilter } from './OriginalFilter.js';
 import { PuppyDogFilter } from './PuppyDogFilter.js';
+import { ARPiercingFilter } from './ARPiercingFilter.js';
 import { CuteKittyFilter } from './CuteKittyFilter.js';
 import { BunnyRabbitFilter } from './BunnyRabbitFilter.js';
 import { SakuraCrownFilter } from './SakuraCrownFilter.js';
@@ -18,11 +19,11 @@ import { CartoonOutlineFilter } from './CartoonOutlineFilter.js';
 import { FloatingHeartsFilter } from './FloatingHeartsFilter.js';
 import { BackgroundBlurFilter } from './BackgroundBlurFilter.js';
 import { MirrorKaleidoscopeFilter } from './MirrorKaleidoscopeFilter.js';
-import { OriginalFilter } from './OriginalFilter.js';
 
 export const ALL_FILTERS = [
-  new ARPiercingFilter(),
+  new OriginalFilter(),
   new PuppyDogFilter(),
+  new ARPiercingFilter(),
   new CuteKittyFilter(),
   new BunnyRabbitFilter(),
   new SakuraCrownFilter(),
@@ -36,8 +37,7 @@ export const ALL_FILTERS = [
   new CartoonOutlineFilter(),
   new FloatingHeartsFilter(),
   new BackgroundBlurFilter(),
-  new MirrorKaleidoscopeFilter(),
-  new OriginalFilter()
+  new MirrorKaleidoscopeFilter()
 ];
 
 export const FILTER_MAP = ALL_FILTERS.reduce((acc, f) => {

@@ -99,15 +99,6 @@ export class ARRenderer {
       } catch (err) {
         console.warn('Filter render error:', err);
         this.ctx.drawImage(this.video, 0, 0, videoWidth, videoHeight);
-        
-        this.ctx.save();
-        this.ctx.fillStyle = 'rgba(255, 0, 0, 0.7)';
-        this.ctx.fillRect(10, 10, Math.min(300, videoWidth - 20), 60);
-        this.ctx.fillStyle = 'white';
-        this.ctx.font = '14px monospace';
-        this.ctx.fillText('CRASH: ' + err.message, 20, 30);
-        this.ctx.fillText(err.stack?.split('\n')[1] || '', 20, 50);
-        this.ctx.restore();
       }
     } else {
       this.ctx.drawImage(this.video, 0, 0, videoWidth, videoHeight);
