@@ -92,6 +92,7 @@ export class TattooMeshWarp {
     const layerW = Math.ceil(baseWidth * pose.scale + pad * 2);
     const layerH = Math.ceil(baseHeight * pose.scale + pad * 2);
 
+    const t0 = performance.now();
     if (this.warpCanvas.width !== layerW || this.warpCanvas.height !== layerH) {
       this.warpCanvas.width = layerW;
       this.warpCanvas.height = layerH;
@@ -125,6 +126,8 @@ export class TattooMeshWarp {
 
       this.drawTriangleSlice(this.warpCtx, texture, p0, p1, p2, u0, v0, u1, v1, u2, v2);
     }
+
+    this.warpTimeMs = performance.now() - t0;
 
     return {
       canvas: this.warpCanvas,

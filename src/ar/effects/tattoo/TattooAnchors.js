@@ -142,4 +142,19 @@ export class TattooAnchors {
 
     return this.smoothedPose;
   }
+
+  reset() {
+    this.hasValidTrack = false;
+    this.lastValidTime = 0;
+    this.smoothedPose = {
+      x: 0,
+      y: 0,
+      scale: 1,
+      rotation: 0,
+      yaw: 0,
+      pitch: 0,
+      roll: 0,
+      confidence: 0
+    };
+  }
 }

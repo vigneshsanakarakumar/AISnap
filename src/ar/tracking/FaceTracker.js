@@ -1,5 +1,6 @@
 /**
  * FaceTracker — Multi-Modal Vision Engine (Face, Hand, Pose Tracking)
+ * Features Decoupled Detection Rates, Zero Inactive Inference, and Precision Performance Telemetry
  */
 
 import { FilesetResolver, FaceLandmarker, HandLandmarker, PoseLandmarker } from '@mediapipe/tasks-vision';
@@ -24,13 +25,25 @@ export class FaceTracker {
     this.handSmoother = new LandmarkSmoother(0.5);
     this.poseSmoother = new LandmarkSmoother(0.5);
 
-    this.lastFaceVideoTime = -1;
-    this.lastHandVideoTime = -1;
-    this.lastPoseVideoTime = -1;
+    // Decoupled Detection Timing (Target ~30 FPS detection to prevent GPU thermal throttling)
+    this.detectionInterval = 33; // 33ms ~ 30 detection FPS
+    this.lastDetectionTimestamp = 0;
+    this.lastVideoTime = -1;
 
-    this.lastFaceResult = null;
-    this.lastHandResult = null;
-    this.lastPoseResult = null;
+    // Cached geometries between detection ticks
+    this.cachedFaceGeometry = null;
+    this.cachedHandGeometry = null;
+    this.cachedPoseGeometry = null;
+
+    // Performance Telemetry
+    this.telemetry = {
+      faceInferenceMs: 0,
+      handInferenceMs: 0,
+      poseInferenceMs: 0,
+      detectionFps: 0,
+      detectionFrames: 0,
+      lastFpsUpdate: performance.now()
+    };
 
     this.onStatusChange = null;
   }
@@ -109,7 +122,6 @@ export class FaceTracker {
     }
   }
 
-  // Lazy initialize Hand Landmarker when needed
   async ensureHandLandmarker() {
     if (this.handLandmarker) return this.handLandmarker;
     try {
@@ -140,7 +152,6 @@ export class FaceTracker {
     }
   }
 
-  // Lazy initialize Pose Landmarker when needed
   async ensurePoseLandmarker() {
     if (this.poseLandmarker) return this.poseLandmarker;
     try {
@@ -176,82 +187,106 @@ export class FaceTracker {
       return null;
     }
 
-    try {
-      if (videoElement.currentTime !== this.lastFaceVideoTime) {
-        this.lastFaceVideoTime = videoElement.currentTime;
-        const results = this.faceLandmarker.detectForVideo(videoElement, timestamp);
-        this.lastFaceResult = results;
-      }
+    // Decoupled rate limiting: return cached geometry if within rate limit
+    if (timestamp - this.lastDetectionTimestamp < this.detectionInterval && this.cachedFaceGeometry) {
+      return this.cachedFaceGeometry;
+    }
 
-      if (this.lastFaceResult && this.lastFaceResult.faceLandmarks && this.lastFaceResult.faceLandmarks.length > 0) {
-        const rawLandmarks = this.lastFaceResult.faceLandmarks[0];
+    try {
+      const t0 = performance.now();
+      const results = this.faceLandmarker.detectForVideo(videoElement, timestamp);
+      const t1 = performance.now();
+      this.telemetry.faceInferenceMs = t1 - t0;
+      this.lastDetectionTimestamp = timestamp;
+      this.recordDetectionFrame();
+
+      if (results && results.faceLandmarks && results.faceLandmarks.length > 0) {
+        const rawLandmarks = results.faceLandmarks[0];
         const smoothedLandmarks = this.faceSmoother.smooth(rawLandmarks);
-        return extractFaceGeometry(smoothedLandmarks, canvasWidth, canvasHeight);
+        this.cachedFaceGeometry = extractFaceGeometry(smoothedLandmarks, canvasWidth, canvasHeight);
       } else {
         this.faceSmoother.reset();
-        return null;
+        this.cachedFaceGeometry = null;
       }
+      return this.cachedFaceGeometry;
     } catch (err) {
-      return null;
+      return this.cachedFaceGeometry;
     }
   }
 
   detectHand(videoElement, canvasWidth, canvasHeight, timestamp = performance.now()) {
     if (!this.handLandmarker || !videoElement || videoElement.readyState < 2) {
       this.ensureHandLandmarker().catch(() => {});
-      return null;
+      return this.cachedHandGeometry;
+    }
+
+    if (timestamp - this.lastDetectionTimestamp < this.detectionInterval && this.cachedHandGeometry) {
+      return this.cachedHandGeometry;
     }
 
     try {
-      if (videoElement.currentTime !== this.lastHandVideoTime) {
-        this.lastHandVideoTime = videoElement.currentTime;
-        this.lastHandResult = this.handLandmarker.detectForVideo(videoElement, timestamp);
-      }
+      const t0 = performance.now();
+      const results = this.handLandmarker.detectForVideo(videoElement, timestamp);
+      const t1 = performance.now();
+      this.telemetry.handInferenceMs = t1 - t0;
+      this.lastDetectionTimestamp = timestamp;
+      this.recordDetectionFrame();
 
-      if (this.lastHandResult && this.lastHandResult.landmarks && this.lastHandResult.landmarks.length > 0) {
-        const rawLandmarks = this.lastHandResult.landmarks[0];
+      if (results && results.landmarks && results.landmarks.length > 0) {
+        const rawLandmarks = results.landmarks[0];
         const smoothedLandmarks = this.handSmoother.smooth(rawLandmarks);
-        return extractHandGeometry(smoothedLandmarks, canvasWidth, canvasHeight);
+        this.cachedHandGeometry = extractHandGeometry(smoothedLandmarks, canvasWidth, canvasHeight);
       } else {
         this.handSmoother.reset();
-        return null;
+        this.cachedHandGeometry = null;
       }
+      return this.cachedHandGeometry;
     } catch (err) {
-      return null;
+      return this.cachedHandGeometry;
     }
   }
 
   detectPose(videoElement, canvasWidth, canvasHeight, timestamp = performance.now()) {
     if (!this.poseLandmarker || !videoElement || videoElement.readyState < 2) {
       this.ensurePoseLandmarker().catch(() => {});
-      return null;
+      return this.cachedPoseGeometry;
+    }
+
+    if (timestamp - this.lastDetectionTimestamp < this.detectionInterval && this.cachedPoseGeometry) {
+      return this.cachedPoseGeometry;
     }
 
     try {
-      if (videoElement.currentTime !== this.lastPoseVideoTime) {
-        this.lastPoseVideoTime = videoElement.currentTime;
-        this.lastPoseResult = this.poseLandmarker.detectForVideo(videoElement, timestamp);
-      }
+      const t0 = performance.now();
+      const results = this.poseLandmarker.detectForVideo(videoElement, timestamp);
+      const t1 = performance.now();
+      this.telemetry.poseInferenceMs = t1 - t0;
+      this.lastDetectionTimestamp = timestamp;
+      this.recordDetectionFrame();
 
-      if (this.lastPoseResult && this.lastPoseResult.landmarks && this.lastPoseResult.landmarks.length > 0) {
-        const rawLandmarks = this.lastPoseResult.landmarks[0];
+      if (results && results.landmarks && results.landmarks.length > 0) {
+        const rawLandmarks = results.landmarks[0];
         const smoothedLandmarks = this.poseSmoother.smooth(rawLandmarks);
-        return extractPoseGeometry(smoothedLandmarks, canvasWidth, canvasHeight);
+        this.cachedPoseGeometry = extractPoseGeometry(smoothedLandmarks, canvasWidth, canvasHeight);
       } else {
         this.poseSmoother.reset();
-        return null;
+        this.cachedPoseGeometry = null;
       }
+      return this.cachedPoseGeometry;
     } catch (err) {
-      return null;
+      return this.cachedPoseGeometry;
     }
   }
 
+  // Multi-Modal Dispatch: RUN ONLY THE ACTIVE TRACKER (Zero inactive inference!)
   detectAll(videoElement, canvasWidth, canvasHeight, timestamp = performance.now(), activeBodyMode = 'face') {
-    const faceGeometry = this.detectFace(videoElement, canvasWidth, canvasHeight, timestamp);
+    let faceGeometry = null;
     let handGeometry = null;
     let poseGeometry = null;
 
-    if (activeBodyMode === 'hand') {
+    if (activeBodyMode === 'face') {
+      faceGeometry = this.detectFace(videoElement, canvasWidth, canvasHeight, timestamp);
+    } else if (activeBodyMode === 'hand') {
       handGeometry = this.detectHand(videoElement, canvasWidth, canvasHeight, timestamp);
     } else if (activeBodyMode === 'torso' || activeBodyMode === 'leg') {
       poseGeometry = this.detectPose(videoElement, canvasWidth, canvasHeight, timestamp);
@@ -262,6 +297,25 @@ export class FaceTracker {
       handGeometry,
       poseGeometry
     };
+  }
+
+  recordDetectionFrame() {
+    this.telemetry.detectionFrames++;
+    const now = performance.now();
+    if (now - this.telemetry.lastFpsUpdate >= 1000) {
+      this.telemetry.detectionFps = this.telemetry.detectionFrames;
+      this.telemetry.detectionFrames = 0;
+      this.telemetry.lastFpsUpdate = now;
+    }
+  }
+
+  resetState() {
+    this.cachedFaceGeometry = null;
+    this.cachedHandGeometry = null;
+    this.cachedPoseGeometry = null;
+    this.faceSmoother.reset();
+    this.handSmoother.reset();
+    this.poseSmoother.reset();
   }
 
   dispose() {
@@ -277,9 +331,7 @@ export class FaceTracker {
       try { this.poseLandmarker.close(); } catch (e) {}
       this.poseLandmarker = null;
     }
-    this.faceSmoother.reset();
-    this.handSmoother.reset();
-    this.poseSmoother.reset();
+    this.resetState();
     this.isReady = false;
     this.isInitializing = false;
     this.notify('disposed');

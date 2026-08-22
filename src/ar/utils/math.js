@@ -111,17 +111,21 @@ export function extractFaceGeometry(landmarks, width, height) {
   // 2D In-plane Roll
   const roll = Math.atan2(rightCenter.y - leftCenter.y, rightCenter.x - leftCenter.x);
 
-  // 3D Depth-aware Yaw (Left-Right turning)
+  // Robust Scale-Invariant 3D Yaw (Head turning Left / Right)
   const dzCheek = (landmarks[454]?.z || 0) - (landmarks[234]?.z || 0);
   const dxCheek = (landmarks[454]?.x || 0.5) - (landmarks[234]?.x || 0.5);
-  const rawYaw = Math.atan2(dzCheek, Math.max(0.001, dxCheek));
-  const yaw = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, rawYaw * 1.8));
+  const zYaw = Math.atan2(dzCheek, Math.max(0.001, Math.abs(dxCheek)));
+  const distLeftNose = Math.hypot(noseTip.x - leftEye.x, noseTip.y - leftEye.y);
+  const distRightNose = Math.hypot(noseTip.x - rightEye.x, noseTip.y - rightEye.y);
+  const geomYaw = Math.asin(Math.max(-0.95, Math.min(0.95, (distRightNose - distLeftNose) / (eyeDistance || 1))));
+  const yaw = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, zYaw * 0.55 + geomYaw * 0.45));
 
-  // 3D Depth-aware Pitch (Up-Down tilting)
+  // Robust Scale-Invariant 3D Pitch (Head tilting Up / Down)
   const dzNoseForehead = (landmarks[152]?.z || 0) - (landmarks[10]?.z || 0);
   const dyNoseForehead = (landmarks[152]?.y || 0.5) - (landmarks[10]?.y || 0.5);
-  const rawPitch = Math.atan2(dzNoseForehead, Math.max(0.001, dyNoseForehead));
-  const pitch = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, rawPitch * 1.6));
+  const zPitch = Math.atan2(dzNoseForehead, Math.max(0.001, Math.abs(dyNoseForehead)));
+  const geomPitch = ((noseTip.y - eyeMidpoint.y) / (faceHeight || 1) - 0.35) * 1.6;
+  const pitch = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, zPitch * 0.55 + geomPitch * 0.45));
 
   return {
     leftCenter,

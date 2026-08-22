@@ -32,6 +32,9 @@ export class ARRenderer {
 
   setFilter(filter) {
     this.activeFilter = filter;
+    if (this.tracker && typeof this.tracker.resetState === 'function') {
+      this.tracker.resetState();
+    }
   }
 
   start() {

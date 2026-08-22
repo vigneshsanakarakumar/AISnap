@@ -40,6 +40,7 @@ export class ARTattooFilter extends ARFilter {
       this.placement = place;
       const meta = this.placements.find((p) => p.id === place);
       this.targetBodyPart = meta?.bodyPart || 'face';
+      this.anchors.reset();
     }
   }
 
@@ -56,6 +57,7 @@ export class ARTattooFilter extends ARFilter {
   }
 
   render(ctx, canvas, video, trackingResult, timestamp = performance.now()) {
+    const tStart = performance.now();
     const { width, height } = canvas;
 
     // 1. Draw base video feed with natural grading
