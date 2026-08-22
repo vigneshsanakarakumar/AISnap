@@ -1,107 +1,203 @@
 ﻿/**
- * PiercingGeometry — Procedural Canvas2D shapes for all jewelry types.
- * All draw functions are pure: they translate/rotate their own context save/restore.
- * No allocations. No per-frame canvases. Caller provides ctx + pre-translated origin.
+ * PiercingGeometry — High-Fidelity 3D Vector Procedural Navel Piercing Jewelry
+ * Features realistic metallic reflections, ambient occlusion drop shadow, faceted gemstones, and shimmer.
  */
 import { METAL_PALETTES, GEM_PALETTES } from './PiercingConfig.js';
 
-// ─── helpers ────────────────────────────────────────────────────────────────
+// ─── UTILITIES ──────────────────────────────────────────────────────────────
 
-function metalGrad(ctx, x, y, r, palette) {
-  const g = ctx.createRadialGradient(x - r * 0.35, y - r * 0.35, r * 0.05, x, y, r);
-  g.addColorStop(0,    palette.highlight);
-  g.addColorStop(0.28, palette.sheen);
-  g.addColorStop(0.65, palette.mid);
-  g.addColorStop(1,    palette.edge);
-  return g;
-}
+function contactShadow(ctx, x, y, radius, opacity = 0.5) {
+  ctx.save();
+  const grad = ctx.createRadialGradient(x, y, radius * 0.1, x, y, radius * 2.2);
+  grad.addColorStop(0, `rgba(0, 0, 0, ${opacity})`);
+  grad.addColorStop(0.4, `rgba(0, 0, 0, ${opacity * 0.45})`);
+  grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
 
-function gemGrad(ctx, x, y, r, palette) {
-  const g = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.05, x, y, r);
-  g.addColorStop(0,    palette.highlight);
-  g.addColorStop(0.25, palette.base);
-  g.addColorStop(0.75, palette.inner);
-  g.addColorStop(1,    palette.edge);
-  return g;
-}
-
-function contactShadow(ctx, x, y, r, strength = 0.45) {
-  const g = ctx.createRadialGradient(x, y + r * 0.7, 0, x, y + r * 0.7, r * 1.4);
-  g.addColorStop(0,   `rgba(0,0,0,${strength})`);
-  g.addColorStop(0.5, `rgba(0,0,0,${strength * 0.4})`);
-  g.addColorStop(1,   'rgba(0,0,0,0)');
-  ctx.fillStyle = g;
+  ctx.fillStyle = grad;
   ctx.beginPath();
-  ctx.ellipse(x, y + r * 0.8, r * 1.1, r * 0.5, 0, 0, Math.PI * 2);
+  ctx.ellipse(x, y, radius * 1.8, radius * 0.8, 0, 0, Math.PI * 2);
   ctx.fill();
+  ctx.restore();
 }
 
-// ─── STUD ────────────────────────────────────────────────────────────────────
+function drawPolishedBall(ctx, x, y, r, metalPalette, gemKey = null, time = 0) {
+  // Ambient drop shadow beneath the ball
+  contactShadow(ctx, x, y + r * 0.35, r, 0.42);
 
-/**
- * Draw a circular ear stud at canvas origin (0,0) with given radius.
- * @param {CanvasRenderingContext2D} ctx
- * @param {number} r  radius in canvas px
- * @param {string} metalKey  'silver' | 'gold' | 'black'
- * @param {string|null} gemKey  null | 'diamond' | 'aqua' | etc.
- */
-export function drawStud(ctx, r, metalKey, gemKey) {
-  const m = METAL_PALETTES[metalKey] || METAL_PALETTES.silver;
-
-  // Contact shadow
-  contactShadow(ctx, 0, 0, r);
-
-  // Backing disk (bezel)
+  // Outer bezel / edge dark rim
   ctx.beginPath();
-  ctx.arc(0, 0, r, 0, Math.PI * 2);
-  ctx.fillStyle = m.edge;
-  ctx.fill();
-
-  // Metal face
-  ctx.beginPath();
-  ctx.arc(0, 0, r * 0.88, 0, Math.PI * 2);
-  ctx.fillStyle = metalGrad(ctx, 0, 0, r * 0.88, m);
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = metalPalette.edge;
   ctx.fill();
 
   if (gemKey && GEM_PALETTES[gemKey]) {
-    // Gem occupies 55% of stud face
-    const gr = r * 0.55;
     const gp = GEM_PALETTES[gemKey];
-    // gem body
+    const gr = r * 0.82;
+
+    // Gemstone body gradient
+    const gemGrad = ctx.createRadialGradient(x - gr * 0.35, y - gr * 0.35, gr * 0.05, x, y, gr);
+    gemGrad.addColorStop(0, gp.highlight);
+    gemGrad.addColorStop(0.25, gp.base);
+    gemGrad.addColorStop(0.7, gp.inner);
+    gemGrad.addColorStop(1, gp.deep);
+
     ctx.beginPath();
-    ctx.arc(0, 0, gr, 0, Math.PI * 2);
-    ctx.fillStyle = gemGrad(ctx, 0, 0, gr, gp);
+    ctx.arc(x, y, gr, 0, Math.PI * 2);
+    ctx.fillStyle = gemGrad;
     ctx.fill();
-    // gem edge ring
-    ctx.strokeStyle = gp.edge;
+
+    // Gem facet internal prism lines
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
     ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    for (let a = 0; a < Math.PI * 2; a += Math.PI / 4) {
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(a) * gr * 0.9, y + Math.sin(a) * gr * 0.9);
+    }
     ctx.stroke();
-    // specular point
+    ctx.restore();
+
+    // Primary bright specular glint
     ctx.beginPath();
-    ctx.arc(-gr * 0.3, -gr * 0.3, gr * 0.18, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.arc(x - gr * 0.35, y - gr * 0.35, gr * 0.25, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
     ctx.fill();
+
+    // Dynamic gemstone sparkle flare
+    const sparklePhase = (time * 3.5 + x) % (Math.PI * 2);
+    const sparkleIntensity = Math.max(0, Math.sin(sparklePhase));
+    if (sparkleIntensity > 0.4) {
+      const arm = gr * 0.7 * sparkleIntensity;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(x - gr * 0.35 - arm, y - gr * 0.35);
+      ctx.lineTo(x - gr * 0.35 + arm, y - gr * 0.35);
+      ctx.moveTo(x - gr * 0.35, y - gr * 0.35 - arm);
+      ctx.lineTo(x - gr * 0.35, y - gr * 0.35 + arm);
+      ctx.stroke();
+      ctx.restore();
+    }
   } else {
-    // Specular highlight for plain metal
-    const hg = ctx.createRadialGradient(-r * 0.3, -r * 0.3, 0, -r * 0.3, -r * 0.3, r * 0.55);
-    hg.addColorStop(0, 'rgba(255,255,255,0.7)');
-    hg.addColorStop(1, 'rgba(255,255,255,0)');
+    // Solid Polished Metallic sphere
+    const metalGrad = ctx.createRadialGradient(x - r * 0.38, y - r * 0.38, r * 0.05, x, y, r);
+    metalGrad.addColorStop(0, metalPalette.highlight);
+    metalGrad.addColorStop(0.22, metalPalette.sheen);
+    metalGrad.addColorStop(0.65, metalPalette.mid);
+    metalGrad.addColorStop(0.9, metalPalette.darkMid);
+    metalGrad.addColorStop(1, metalPalette.edge);
+
     ctx.beginPath();
-    ctx.arc(0, 0, r * 0.88, 0, Math.PI * 2);
-    ctx.fillStyle = hg;
+    ctx.arc(x, y, r * 0.92, 0, Math.PI * 2);
+    ctx.fillStyle = metalGrad;
+    ctx.fill();
+
+    // Specular highlight spot
+    ctx.beginPath();
+    ctx.arc(x - r * 0.32, y - r * 0.32, r * 0.22, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.88)';
     ctx.fill();
   }
 }
 
-// ─── STAR STUD ───────────────────────────────────────────────────────────────
+// ─── CHARM DRAWERS ──────────────────────────────────────────────────────────
 
-export function drawStarStud(ctx, r, metalKey) {
-  const m = METAL_PALETTES[metalKey] || METAL_PALETTES.gold;
-  contactShadow(ctx, 0, 0, r);
+function drawHeartCharm(ctx, x, y, size, metalPalette, gemKey, time) {
+  contactShadow(ctx, x, y + size * 0.4, size * 0.8, 0.45);
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  // Heart path
+  const w = size;
+  const h = size * 0.95;
+
+  ctx.beginPath();
+  ctx.moveTo(0, h * 0.35);
+  ctx.bezierCurveTo(-w * 0.55, -h * 0.45, -w * 0.55, h * 0.35, 0, h * 0.55);
+  ctx.bezierCurveTo(w * 0.55, h * 0.35, w * 0.55, -h * 0.45, 0, h * 0.35);
+  ctx.closePath();
+
+  // Edge bezel
+  ctx.fillStyle = metalPalette.edge;
+  ctx.fill();
+  ctx.strokeStyle = metalPalette.mid;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Heart jewel fill
+  const gp = GEM_PALETTES.crystal;
+  const hGrad = ctx.createLinearGradient(-w * 0.3, -h * 0.3, w * 0.3, h * 0.3);
+  hGrad.addColorStop(0, gp.highlight);
+  hGrad.addColorStop(0.3, gp.base);
+  hGrad.addColorStop(0.7, gp.inner);
+  hGrad.addColorStop(1, gp.deep);
+
+  ctx.save();
+  ctx.scale(0.85, 0.85);
+  ctx.fillStyle = hGrad;
+  ctx.fill();
+  ctx.restore();
+
+  // Heart Glint
+  ctx.beginPath();
+  ctx.arc(-w * 0.18, -h * 0.05, w * 0.12, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function drawLotusCharm(ctx, x, y, size, metalPalette, time) {
+  contactShadow(ctx, x, y + size * 0.4, size * 0.8, 0.4);
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  const petals = 5;
+  for (let i = 0; i < petals; i++) {
+    const angle = ((i - 2) * Math.PI) / 8;
+    ctx.save();
+    ctx.rotate(angle);
+    ctx.beginPath();
+    ctx.ellipse(0, -size * 0.35, size * 0.14, size * 0.42, 0, 0, Math.PI * 2);
+    ctx.fillStyle = i === 2 ? metalPalette.highlight : metalPalette.sheen;
+    ctx.fill();
+    ctx.strokeStyle = metalPalette.edge;
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Central opal gem
+  const gp = GEM_PALETTES.opal;
+  ctx.beginPath();
+  ctx.arc(0, 0, size * 0.28, 0, Math.PI * 2);
+  ctx.fillStyle = gp.deep;
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(0, 0, size * 0.22, 0, Math.PI * 2);
+  ctx.fillStyle = gp.base;
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(-size * 0.06, -size * 0.06, size * 0.08, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function drawStarCharm(ctx, x, y, size, metalPalette, time) {
+  contactShadow(ctx, x, y + size * 0.4, size * 0.8, 0.45);
+
+  ctx.save();
+  ctx.translate(x, y);
 
   const spikes = 5;
-  const outer = r;
-  const inner = r * 0.45;
+  const outer = size * 0.6;
+  const inner = outer * 0.42;
 
   ctx.beginPath();
   for (let i = 0; i < spikes * 2; i++) {
@@ -111,204 +207,97 @@ export function drawStarStud(ctx, r, metalKey) {
             : ctx.lineTo(Math.cos(angle) * rad, Math.sin(angle) * rad);
   }
   ctx.closePath();
-  ctx.fillStyle = m.edge;
+  ctx.fillStyle = metalPalette.edge;
   ctx.fill();
 
-  // Inner fill
-  const innerStar = outer * 0.85;
-  const innerInner = inner * 0.85;
+  ctx.save();
+  ctx.scale(0.85, 0.85);
   ctx.beginPath();
   for (let i = 0; i < spikes * 2; i++) {
     const angle = (i * Math.PI) / spikes - Math.PI / 2;
-    const rad = i % 2 === 0 ? innerStar : innerInner;
+    const rad = i % 2 === 0 ? outer : inner;
     i === 0 ? ctx.moveTo(Math.cos(angle) * rad, Math.sin(angle) * rad)
             : ctx.lineTo(Math.cos(angle) * rad, Math.sin(angle) * rad);
   }
   ctx.closePath();
-  ctx.fillStyle = metalGrad(ctx, 0, 0, innerStar, m);
+  ctx.fillStyle = metalPalette.sheen;
   ctx.fill();
+  ctx.restore();
 
-  // Centre gem
-  const gp = GEM_PALETTES.star;
-  ctx.beginPath();
-  ctx.arc(0, 0, r * 0.28, 0, Math.PI * 2);
-  ctx.fillStyle = gemGrad(ctx, 0, 0, r * 0.28, gp);
-  ctx.fill();
-}
-
-// ─── HOOP ────────────────────────────────────────────────────────────────────
-
-/**
- * Draw a hoop (torus ring) at canvas origin, facing camera.
- * @param {CanvasRenderingContext2D} ctx
- * @param {number} R  outer ring radius
- * @param {number} tubeR  tube thickness (cross-section radius)
- * @param {string} metalKey
- * @param {number} yawForeshorten  0..1 — how much the hoop narrows due to head rotation
- */
-export function drawHoop(ctx, R, tubeR, metalKey, yawForeshorten = 1.0) {
-  const m = METAL_PALETTES[metalKey] || METAL_PALETTES.silver;
-  const scaleX = Math.max(0.15, yawForeshorten);
-
-  contactShadow(ctx, 0, 0, R * 0.5);
-
-  // Outer arc path (ellipse for foreshortening)
-  ctx.save();
-  ctx.scale(scaleX, 1);
-
-  // Outer ring (edge/shadow side)
-  ctx.beginPath();
-  ctx.arc(0, 0, R + tubeR, 0, Math.PI * 2);
-  ctx.arc(0, 0, R - tubeR, 0, Math.PI * 2, true);
-  ctx.fillStyle = m.edge;
-  ctx.fill('evenodd');
-
-  // Metal sheen ring
-  const ringGrad = ctx.createLinearGradient(-R, 0, R, 0);
-  ringGrad.addColorStop(0,    m.highlight);
-  ringGrad.addColorStop(0.25, m.mid);
-  ringGrad.addColorStop(0.5,  m.edge);
-  ringGrad.addColorStop(0.75, m.mid);
-  ringGrad.addColorStop(1,    m.highlight);
-
-  ctx.beginPath();
-  ctx.arc(0, 0, R + tubeR * 0.8, 0, Math.PI * 2);
-  ctx.arc(0, 0, R - tubeR * 0.8, 0, Math.PI * 2, true);
-  ctx.fillStyle = ringGrad;
-  ctx.fill('evenodd');
+  // Central sparkling diamond
+  drawPolishedBall(ctx, 0, 0, size * 0.22, metalPalette, 'diamond', time);
 
   ctx.restore();
 }
 
-// ─── BARBELL ──────────────────────────────────────────────────────────────────
+// ─── MASTER CURVED NAVEL JEWELRY RENDERER ───────────────────────────────────
 
 /**
- * Draw a tongue barbell: cylinder shaft + two sphere balls.
- * ctx should be already translated so the barbell is centred at origin.
- * @param {CanvasRenderingContext2D} ctx
- * @param {number} length  shaft length
- * @param {number} ballR   ball radius
- * @param {string} metalKey
- * @param {string|null} gemKey  applies to top ball only
- * @param {boolean} doubled  if true, both balls are gems
+ * Draw complete realistic Navel Barbell with perspective 3D curvature and lighting
  */
-export function drawBarbell(ctx, length, ballR, metalKey, gemKey, doubled = false) {
-  const m = METAL_PALETTES[metalKey] || METAL_PALETTES.silver;
-  const shaftR = ballR * 0.45;
-  const halfL = length / 2;
+export function drawNavelJewelry(ctx, design, scale, yaw = 0, time = 0) {
+  const metal = METAL_PALETTES[design.metal] || METAL_PALETTES.silver;
 
-  // Contact shadow at bottom ball
-  contactShadow(ctx, 0, halfL, ballR, 0.3);
+  const totalHeight = scale * 1.8;
+  const topBallR = scale * 0.24;
+  const bottomBallR = scale * 0.42;
+  const shaftR = scale * 0.08;
 
-  // Shaft (cylinder tube rendered as rectangle with gradient)
-  const shaftGrad = ctx.createLinearGradient(-shaftR, 0, shaftR, 0);
-  shaftGrad.addColorStop(0,    m.edge);
-  shaftGrad.addColorStop(0.35, m.mid);
-  shaftGrad.addColorStop(0.55, m.highlight);
-  shaftGrad.addColorStop(0.8,  m.mid);
-  shaftGrad.addColorStop(1,    m.edge);
+  const topY = -totalHeight * 0.42;
+  const bottomY = totalHeight * 0.35;
 
-  ctx.fillStyle = shaftGrad;
-  ctx.beginPath();
-  ctx.rect(-shaftR, -halfL + ballR * 0.6, shaftR * 2, length - ballR * 1.2);
-  ctx.fill();
+  // Perspective curve bowing with torso twist/yaw
+  const curveBowX = (scale * 0.38) + (yaw * scale * 0.4);
 
-  // Bottom ball
+  // 1. Curved 3D Shaft (rendered as seamless bezier tube with specular sheen)
   ctx.save();
-  ctx.translate(0, halfL);
-  _drawBall(ctx, ballR, m, doubled ? gemKey : null);
-  ctx.restore();
-
-  // Top ball
-  ctx.save();
-  ctx.translate(0, -halfL);
-  _drawBall(ctx, ballR, m, gemKey);
-  ctx.restore();
-}
-
-function _drawBall(ctx, r, palette, gemKey) {
-  // Metal ring edge
+  
+  // Dark edge tube pass
   ctx.beginPath();
-  ctx.arc(0, 0, r, 0, Math.PI * 2);
-  ctx.fillStyle = palette.edge;
-  ctx.fill();
+  ctx.moveTo(0, topY);
+  ctx.quadraticCurveTo(curveBowX, (topY + bottomY) * 0.48, 0, bottomY);
+  ctx.strokeStyle = metal.edge;
+  ctx.lineWidth = shaftR * 2 + 1.6;
+  ctx.lineCap = 'round';
+  ctx.stroke();
 
-  if (gemKey && GEM_PALETTES[gemKey]) {
-    const gp = GEM_PALETTES[gemKey];
-    ctx.beginPath();
-    ctx.arc(0, 0, r * 0.9, 0, Math.PI * 2);
-    ctx.fillStyle = gemGrad(ctx, 0, 0, r * 0.9, gp);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(-r * 0.28, -r * 0.28, r * 0.2, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.8)';
-    ctx.fill();
-  } else {
-    ctx.beginPath();
-    ctx.arc(0, 0, r * 0.9, 0, Math.PI * 2);
-    ctx.fillStyle = metalGrad(ctx, 0, 0, r * 0.9, palette);
-    ctx.fill();
-    // specular
-    ctx.beginPath();
-    ctx.arc(-r * 0.28, -r * 0.28, r * 0.22, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.fill();
-  }
-}
-
-// ─── CURVED BARBELL (Navel) ───────────────────────────────────────────────────
-
-/**
- * Draw a navel curved barbell. Top ball at top, curve bends downward,
- * bottom charm or ball at bottom.
- * ctx translated so mid-point of curve is at origin.
- */
-export function drawCurvedBarbell(ctx, length, ballR, metalKey, charmKey) {
-  const m = METAL_PALETTES[metalKey] || METAL_PALETTES.silver;
-  const shaftR = ballR * 0.42;
-  const halfL = length / 2;
-  const bendY = halfL * 0.5;  // how far the curve bows outward
-
-  // Draw curved shaft as a bezier stroke
-  ctx.save();
+  // Metallic midtone tube pass
   ctx.beginPath();
-  ctx.moveTo(0, -halfL);
-  ctx.quadraticCurveTo(ballR * 2.5, 0, 0, halfL);
-  ctx.strokeStyle = m.mid;
+  ctx.moveTo(0, topY);
+  ctx.quadraticCurveTo(curveBowX, (topY + bottomY) * 0.48, 0, bottomY);
+  ctx.strokeStyle = metal.mid;
   ctx.lineWidth = shaftR * 2;
-  ctx.lineCap = 'butt';
+  ctx.lineCap = 'round';
   ctx.stroke();
 
-  // Edge shadow re-draw thinner
+  // High-reflection specular tube pass
   ctx.beginPath();
-  ctx.moveTo(0, -halfL);
-  ctx.quadraticCurveTo(ballR * 2.5, 0, 0, halfL);
-  ctx.strokeStyle = m.edge;
-  ctx.lineWidth = shaftR * 2 + 2;
+  ctx.moveTo(0, topY);
+  ctx.quadraticCurveTo(curveBowX, (topY + bottomY) * 0.48, 0, bottomY);
+  ctx.strokeStyle = metal.highlight;
+  ctx.lineWidth = shaftR * 0.7;
+  ctx.lineCap = 'round';
   ctx.stroke();
 
-  // Highlight over-draw
-  ctx.beginPath();
-  ctx.moveTo(0, -halfL);
-  ctx.quadraticCurveTo(ballR * 2.5, 0, 0, halfL);
-  ctx.strokeStyle = m.highlight;
-  ctx.lineWidth = shaftR * 0.6;
-  ctx.stroke();
   ctx.restore();
 
-  // Top ball
-  ctx.save();
-  ctx.translate(0, -halfL);
-  _drawBall(ctx, ballR, m, null);
-  ctx.restore();
+  // 2. Top Ball (upper rim of navel piercing)
+  drawPolishedBall(ctx, 0, topY, topBallR, metal, design.topGem, time);
 
-  // Bottom ball / charm
-  ctx.save();
-  ctx.translate(0, halfL);
-  if (charmKey && GEM_PALETTES[charmKey]) {
-    _drawBall(ctx, ballR * 1.25, m, charmKey);
+  // 3. Bottom Main Feature / Charm / Jewel (sitting inside belly button depression)
+  const charmType = design.charm;
+
+  if (charmType === 'heart') {
+    drawHeartCharm(ctx, 0, bottomY + scale * 0.05, bottomBallR * 1.7, metal, 'crystal', time);
+  } else if (charmType === 'lotus') {
+    drawLotusCharm(ctx, 0, bottomY + scale * 0.05, bottomBallR * 1.8, metal, time);
+  } else if (charmType === 'star') {
+    drawStarCharm(ctx, 0, bottomY + scale * 0.05, bottomBallR * 1.8, metal, time);
+  } else if (charmType === 'diamond_drop' || charmType === 'emerald_drop' || charmType === 'obsidian_drop') {
+    const gemType = charmType === 'emerald_drop' ? 'emerald' : charmType === 'obsidian_drop' ? null : 'diamond';
+    drawPolishedBall(ctx, 0, bottomY, bottomBallR * 1.35, metal, gemType, time);
   } else {
-    _drawBall(ctx, ballR, m, null);
+    // Classic large polished bottom ball / gem
+    drawPolishedBall(ctx, 0, bottomY, bottomBallR, metal, null, time);
   }
-  ctx.restore();
 }

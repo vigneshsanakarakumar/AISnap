@@ -61,8 +61,8 @@ export class ARRenderer {
     let videoWidth = this.video.videoWidth || 640;
     let videoHeight = this.video.videoHeight || 480;
 
-    // Apply max processing resolution (cap at ~540p height) to prevent mobile thermal throttling
-    const MAX_HEIGHT = 540;
+    // High Clarity HD Resolution processing (Cap at 720p for crystal-clear visuals & high 60 FPS)
+    const MAX_HEIGHT = 720;
     if (videoHeight > MAX_HEIGHT) {
       const ratio = MAX_HEIGHT / videoHeight;
       videoHeight = MAX_HEIGHT;
@@ -74,6 +74,9 @@ export class ARRenderer {
       this.canvas.width = videoWidth;
       this.canvas.height = videoHeight;
     }
+
+    this.ctx.imageSmoothingEnabled = true;
+    this.ctx.imageSmoothingQuality = 'high';
 
     // 1. Detect Landmarks (Multi-Modal on Demand)
     let trackingResult = null;

@@ -1,61 +1,141 @@
 ﻿/**
- * PiercingConfig — Design catalogue and placement metadata
+ * PiercingConfig — Navel / Belly Button Piercing Studio Design Catalogue
  */
 
-// DEBUG flag: set to false before shipping to production
-export const DEBUG = true;
-
-export const PLACEMENTS = [
-  { id: 'ear',    label: 'Ear',    icon: '👂', tracker: 'face', hint: 'Keep your face visible' },
-  { id: 'tongue', label: 'Tongue', icon: '👅', tracker: 'face', hint: 'Open your mouth to preview' },
-  { id: 'navel',  label: 'Navel',  icon: '✨', tracker: 'pose', hint: 'Show your torso to preview' },
-];
-
-export const EAR_DESIGNS = [
-  { id: 'silver_stud',  name: 'Silver Stud',  type: 'stud', metal: 'silver', gem: null },
-  { id: 'gold_stud',    name: 'Gold Stud',    type: 'stud', metal: 'gold',   gem: null },
-  { id: 'diamond_stud', name: 'Diamond Stud', type: 'stud', metal: 'silver', gem: 'diamond' },
-  { id: 'star_stud',    name: 'Star Stud',    type: 'star', metal: 'gold',   gem: null },
-  { id: 'small_hoop',   name: 'Small Hoop',   type: 'hoop', metal: 'silver', gem: null },
-  { id: 'gold_hoop',    name: 'Gold Hoop',    type: 'hoop', metal: 'gold',   gem: null },
-  { id: 'black_hoop',   name: 'Black Hoop',   type: 'hoop', metal: 'black',  gem: null },
-];
-
-export const TONGUE_DESIGNS = [
-  { id: 'silver_barbell', name: 'Silver Barbell',      type: 'barbell', metal: 'silver', gem: null,    doubled: false },
-  { id: 'gold_barbell',   name: 'Gold Barbell',        type: 'barbell', metal: 'gold',   gem: null,    doubled: false },
-  { id: 'black_barbell',  name: 'Black Titanium',      type: 'barbell', metal: 'black',  gem: null,    doubled: false },
-  { id: 'gem_barbell',    name: 'Gem Ball Barbell',    type: 'barbell', metal: 'silver', gem: 'aqua',  doubled: false },
-  { id: 'double_barbell', name: 'Double Ball Barbell', type: 'barbell', metal: 'silver', gem: null,    doubled: true  },
-];
+export const DEBUG = false; // Set to true if live landmark coordinates debug overlay is needed
 
 export const NAVEL_DESIGNS = [
-  { id: 'silver_curved', name: 'Classic Silver', type: 'curved_barbell', metal: 'silver', charm: null     },
-  { id: 'gold_curved',   name: 'Gold Curved',    type: 'curved_barbell', metal: 'gold',   charm: null     },
-  { id: 'crystal_ring',  name: 'Crystal Ring',   type: 'curved_barbell', metal: 'silver', charm: 'crystal'},
-  { id: 'heart_charm',   name: 'Heart Charm',    type: 'curved_barbell', metal: 'gold',   charm: 'heart'  },
-  { id: 'star_charm',    name: 'Star Charm',     type: 'curved_barbell', metal: 'silver', charm: 'star'   },
-  { id: 'gem_drop',      name: 'Gem Drop',       type: 'curved_barbell', metal: 'gold',   charm: 'gem'    },
+  {
+    id: 'diamond_solitaire',
+    name: 'Diamond Solitaire',
+    metal: 'silver',
+    topGem: 'diamond',
+    charm: 'diamond_drop',
+    gemColor: '#e0f2fe',
+    description: 'Brilliant cut diamond solitaire with curved platinum barbell'
+  },
+  {
+    id: 'luxury_gold',
+    name: '18K Luxury Gold',
+    metal: 'gold',
+    topGem: null,
+    charm: 'gold_ball',
+    gemColor: '#fef08a',
+    description: 'Polished 18K solid yellow gold curved barbell'
+  },
+  {
+    id: 'crystal_heart',
+    name: 'Rose Gold Heart',
+    metal: 'rosegold',
+    topGem: 'crystal',
+    charm: 'heart',
+    gemColor: '#f472b6',
+    description: 'Rose gold curved ring with pavé crystal heart charm'
+  },
+  {
+    id: 'opal_lotus',
+    name: 'Opal Lotus Drop',
+    metal: 'silver',
+    topGem: 'opal',
+    charm: 'lotus',
+    gemColor: '#a7f3d0',
+    description: 'Ethereal iridescent opal cluster with hanging lotus blossom'
+  },
+  {
+    id: 'emerald_royal',
+    name: 'Emerald Crown',
+    metal: 'gold',
+    topGem: 'emerald',
+    charm: 'emerald_drop',
+    gemColor: '#10b981',
+    description: 'Deep emerald jewel with regal filigree gold setting'
+  },
+  {
+    id: 'celestial_star',
+    name: 'Celestial Star',
+    metal: 'silver',
+    topGem: 'diamond',
+    charm: 'star',
+    gemColor: '#fde047',
+    description: 'Gleaming five-point star charm with radiant crystal center'
+  },
+  {
+    id: 'obsidian_titanium',
+    name: 'Black Titanium',
+    metal: 'black',
+    topGem: null,
+    charm: 'obsidian_drop',
+    gemColor: '#6b7280',
+    description: 'Anodized black titanium curved barbell with dark onyx drop'
+  }
 ];
 
-export function getDesignsForPlacement(placementId) {
-  if (placementId === 'ear')    return EAR_DESIGNS;
-  if (placementId === 'tongue') return TONGUE_DESIGNS;
-  if (placementId === 'navel')  return NAVEL_DESIGNS;
-  return EAR_DESIGNS;
-}
-
 export const METAL_PALETTES = {
-  silver: { edge: '#4a5568', mid: '#a0aec0', highlight: '#f7fafc', sheen: '#e2e8f0', shadow: 'rgba(0,0,0,0.35)' },
-  gold:   { edge: '#744210', mid: '#d69e2e', highlight: '#fefcbf', sheen: '#f6e05e', shadow: 'rgba(0,0,0,0.35)' },
-  black:  { edge: '#1a1a1a', mid: '#3d3d3d', highlight: '#6b7280', sheen: '#4b5563', shadow: 'rgba(0,0,0,0.5)'  },
+  silver: {
+    edge: '#334155',
+    darkMid: '#64748b',
+    mid: '#cbd5e1',
+    sheen: '#f1f5f9',
+    highlight: '#ffffff',
+    shadow: 'rgba(0, 0, 0, 0.4)'
+  },
+  gold: {
+    edge: '#713f12',
+    darkMid: '#a16207',
+    mid: '#eab308',
+    sheen: '#fef08a',
+    highlight: '#ffffff',
+    shadow: 'rgba(50, 30, 0, 0.45)'
+  },
+  rosegold: {
+    edge: '#881337',
+    darkMid: '#be123c',
+    mid: '#fb7185',
+    sheen: '#ffe4e6',
+    highlight: '#ffffff',
+    shadow: 'rgba(60, 10, 20, 0.4)'
+  },
+  black: {
+    edge: '#09090b',
+    darkMid: '#18181b',
+    mid: '#3f3f46',
+    sheen: '#71717a',
+    highlight: '#d4d4d8',
+    shadow: 'rgba(0, 0, 0, 0.6)'
+  }
 };
 
 export const GEM_PALETTES = {
-  diamond: { base: '#e8f4fd', inner: '#bfdbfe', highlight: '#ffffff', edge: '#93c5fd' },
-  aqua:    { base: '#06b6d4', inner: '#0e7490', highlight: '#cffafe', edge: '#0891b2' },
-  crystal: { base: '#e9d5ff', inner: '#a855f7', highlight: '#ffffff', edge: '#7c3aed' },
-  heart:   { base: '#ec4899', inner: '#be185d', highlight: '#fce7f3', edge: '#9d174d' },
-  star:    { base: '#fbbf24', inner: '#d97706', highlight: '#fef3c7', edge: '#92400e' },
-  gem:     { base: '#10b981', inner: '#065f46', highlight: '#d1fae5', edge: '#047857' },
+  diamond: {
+    base: '#f0fdf4',
+    inner: '#bae6fd',
+    deep: '#38bdf8',
+    highlight: '#ffffff',
+    sparkle: '#ffffff',
+    edge: '#93c5fd'
+  },
+  crystal: {
+    base: '#faf5ff',
+    inner: '#f3e8ff',
+    deep: '#c084fc',
+    highlight: '#ffffff',
+    sparkle: '#ffffff',
+    edge: '#e9d5ff'
+  },
+  opal: {
+    base: '#f0fdfa',
+    inner: '#99f6e4',
+    deep: '#2dd4bf',
+    highlight: '#ffffff',
+    sparkle: '#ccfbf1',
+    edge: '#5eead4'
+  },
+  emerald: {
+    base: '#ecfdf5',
+    inner: '#34d399',
+    deep: '#059669',
+    highlight: '#d1fae5',
+    sparkle: '#ffffff',
+    edge: '#047857'
+  }
 };

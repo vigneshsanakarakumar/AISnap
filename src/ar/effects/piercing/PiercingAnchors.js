@@ -1,198 +1,22 @@
 ﻿/**
- * PiercingAnchors — Anatomical anchor computation & temporal smoothing for:
- * 1. Ear (Left/Right Earlobe, Helix) from FaceLandmarker
- * 2. Tongue (Mouth Cavity Center, Opening Gate) from FaceLandmarker
- * 3. Navel (Stomach / Belly Button) from PoseLandmarker
+ * PiercingAnchors — Anatomical Stomach & Belly Button Anchor Computation
+ * Provides precision navel positioning from PoseLandmarker with 60FPS fluid smoothing
  */
 
 export class PiercingAnchors {
   constructor() {
-    this.smoothed = {
-      earLeft: null,
-      earRight: null,
-      tongue: null,
-      navel: null
-    };
-    this.mouthOpenSmoothed = 0;
-    this.alpha = 0.35; // Exponential moving average smoothing factor
+    this.smoothedNavel = null;
+    this.alpha = 0.35; // Responsive EMA factor
+    this.lastTimestamp = 0;
   }
 
   reset() {
-    this.smoothed.earLeft = null;
-    this.smoothed.earRight = null;
-    this.smoothed.tongue = null;
-    this.smoothed.navel = null;
-    this.mouthOpenSmoothed = 0;
-  }
-
-  smoothPoint(prev, next, alpha = this.alpha) {
-    if (!prev) return { ...next };
-    return {
-      x: prev.x * (1 - alpha) + next.x * alpha,
-      y: prev.y * (1 - alpha) + next.y * alpha,
-      scale: (prev.scale || 1) * (1 - alpha) + (next.scale || 1) * alpha,
-      rotation: (prev.rotation || 0) * (1 - alpha) + (next.rotation || 0) * alpha,
-      confidence: (prev.confidence || 0) * (1 - alpha) + (next.confidence || 0) * alpha,
-      yaw: (prev.yaw || 0) * (1 - alpha) + (next.yaw || 0) * alpha
-    };
+    this.smoothedNavel = null;
   }
 
   /**
-   * Compute Ear Anchors from Face Landmarks
-   */
-  computeEarAnchors(faceGeometry, canvasWidth, canvasHeight, userScale = 1.0) {
-    if (!faceGeometry || !faceGeometry.rawLandmarks || faceGeometry.rawLandmarks.length < 468) {
-      return null;
-    }
-
-    const {
-      leftCheek,
-      rightCheek,
-      leftEarTop,
-      rightEarTop,
-      chin,
-      forehead,
-      eyeMidpoint,
-      faceWidth,
-      faceHeight,
-      roll,
-      yaw
-    } = faceGeometry;
-
-    // Base unit size derived from facial geometry scale
-    const baseSize = (faceWidth * 0.08) * userScale;
-
-    // Face Landmarker doesn't track deep earlobe surface directly,
-    // so we derive stable anatomical ear anchors:
-    // Left Earlobe: extends outward from left cheek/tragus landmark along head roll axis
-    const cosR = Math.cos(roll);
-    const sinR = Math.sin(roll);
-    
-    // Normal vector perpendicular to head tilt (pointing down along face)
-    const downX = -sinR;
-    const downY = cosR;
-    // Lateral vector (pointing right across face)
-    const rightX = cosR;
-    const rightY = sinR;
-
-    // Earlobe is slightly lower than ear top / tragus
-    const earOffsetDist = faceWidth * 0.14;
-    const earDropDist = faceHeight * 0.12;
-
-    const rawLeft = {
-      x: leftCheek.x - rightX * earOffsetDist + downX * earDropDist,
-      y: leftCheek.y - rightY * earOffsetDist + downY * earDropDist,
-      scale: baseSize,
-      rotation: roll,
-      yaw: yaw,
-      // Left ear is more visible when turning head right (yaw > 0)
-      confidence: Math.max(0.1, Math.min(1.0, 0.85 + yaw * 0.8)),
-      side: 'left'
-    };
-
-    const rawRight = {
-      x: rightCheek.x + rightX * earOffsetDist + downX * earDropDist,
-      y: rightCheek.y + rightY * earOffsetDist + downY * earDropDist,
-      scale: baseSize,
-      rotation: roll,
-      yaw: yaw,
-      // Right ear is more visible when turning head left (yaw < 0)
-      confidence: Math.max(0.1, Math.min(1.0, 0.85 - yaw * 0.8)),
-      side: 'right'
-    };
-
-    // Helix / Upper ear anchors
-    const helixOffsetDist = faceWidth * 0.16;
-    const helixUpDist = faceHeight * 0.08;
-    const rawLeftHelix = {
-      x: (leftEarTop?.x || leftCheek.x) - rightX * helixOffsetDist - downX * helixUpDist,
-      y: (leftEarTop?.y || leftCheek.y) - rightY * helixOffsetDist - downY * helixUpDist,
-      scale: baseSize * 0.85,
-      rotation: roll,
-      yaw: yaw,
-      confidence: rawLeft.confidence,
-      side: 'left_helix'
-    };
-
-    this.smoothed.earLeft = this.smoothPoint(this.smoothed.earLeft, rawLeft);
-    this.smoothed.earRight = this.smoothPoint(this.smoothed.earRight, rawRight);
-
-    return {
-      left: this.smoothed.earLeft,
-      right: this.smoothed.earRight,
-      leftHelix: rawLeftHelix,
-      faceWidth,
-      roll,
-      yaw
-    };
-  }
-
-  /**
-   * Compute Tongue Anchor from Mouth/Lip Landmarks
-   * Strictly verifies mouth openness threshold!
-   */
-  computeTongueAnchor(faceGeometry, canvasWidth, canvasHeight, userScale = 1.0) {
-    if (!faceGeometry || !faceGeometry.rawLandmarks) {
-      return null;
-    }
-
-    const {
-      upperLip,
-      lowerLip,
-      upperLipTop,
-      lowerLipBottom,
-      mouthLeft,
-      mouthRight,
-      faceHeight,
-      faceWidth,
-      roll,
-      yaw
-    } = faceGeometry;
-
-    // Measure vertical mouth opening relative to face height
-    const lipDistance = Math.hypot(lowerLip.y - upperLip.y, lowerLip.x - upperLip.x);
-    const normalizedOpening = lipDistance / (faceHeight || 1);
-
-    this.mouthOpenSmoothed = this.mouthOpenSmoothed * 0.7 + normalizedOpening * 0.3;
-
-    // Threshold: Mouth must be open at least 4.5% of face height
-    const isOpen = this.mouthOpenSmoothed > 0.045;
-    
-    // Confidence falls off smoothly as mouth closes
-    const confidence = Math.max(0, Math.min(1.0, (this.mouthOpenSmoothed - 0.04) / 0.05));
-
-    // Mouth Center Point
-    const mouthCenterX = (mouthLeft.x + mouthRight.x + upperLip.x + lowerLip.x) * 0.25;
-    const mouthCenterY = (mouthLeft.y + mouthRight.y + upperLip.y + lowerLip.y) * 0.25;
-
-    // Tongue surface center sits slightly forward/lower in mouth cavity
-    const cosR = Math.cos(roll);
-    const sinR = Math.sin(roll);
-    const downX = -sinR;
-    const downY = cosR;
-
-    const rawTongue = {
-      x: mouthCenterX + downX * (lipDistance * 0.15),
-      y: mouthCenterY + downY * (lipDistance * 0.15),
-      scale: (faceWidth * 0.075) * userScale,
-      rotation: roll,
-      confidence: isOpen ? confidence : 0,
-      isOpen: isOpen,
-      mouthWidth: Math.hypot(mouthRight.x - mouthLeft.x, mouthRight.y - mouthLeft.y),
-      lipDistance: lipDistance,
-      mouthOpenSmoothed: this.mouthOpenSmoothed
-    };
-
-    this.smoothed.tongue = this.smoothPoint(this.smoothed.tongue, rawTongue);
-    this.smoothed.tongue.isOpen = isOpen;
-    this.smoothed.tongue.lipDistance = lipDistance;
-    this.smoothed.tongue.mouthOpenSmoothed = this.mouthOpenSmoothed;
-
-    return this.smoothed.tongue;
-  }
-
-  /**
-   * Compute Navel / Belly Button Anchor from Pose Landmarks
+   * Compute Navel / Belly Button Anchor from Torso Landmarks
+   * Uses proportional anatomical navel positioning (62% down the sternum-to-pelvis line)
    */
   computeNavelAnchor(poseGeometry, canvasWidth, canvasHeight, userScale = 1.0) {
     if (!poseGeometry) {
@@ -211,36 +35,66 @@ export class PiercingAnchors {
       torsoRoll
     } = poseGeometry;
 
-    // Check visibility / presence of key landmarks
-    const visConfidence = (
-      (leftShoulder.visibility || 0.8) +
-      (rightShoulder.visibility || 0.8) +
-      (leftHip.visibility || 0.8) +
-      (rightHip.visibility || 0.8)
-    ) * 0.25;
+    // Verify key landmark visibility / coordinates
+    const leftShoulderVis = leftShoulder?.visibility !== undefined ? leftShoulder.visibility : 1;
+    const rightShoulderVis = rightShoulder?.visibility !== undefined ? rightShoulder.visibility : 1;
+    const leftHipVis = leftHip?.visibility !== undefined ? leftHip.visibility : 1;
+    const rightHipVis = rightHip?.visibility !== undefined ? rightHip.visibility : 1;
 
-    if (visConfidence < 0.3 || torsoHeight < 20) {
+    const visConfidence = (leftShoulderVis + rightShoulderVis + leftHipVis + rightHipVis) * 0.25;
+
+    // Must have at least basic torso presence
+    if (visConfidence < 0.25 && torsoHeight < 25) {
       return null;
     }
 
-    // Navel is located ~62% down the torso line from mid-shoulders to mid-hips
+    // Anatomical navel position is ~62% down from the mid-shoulder line to the mid-hip line
     const navelRatio = 0.62;
     const rawX = shoulderMid.x * (1 - navelRatio) + hipMid.x * navelRatio;
     const rawY = shoulderMid.y * (1 - navelRatio) + hipMid.y * navelRatio;
 
-    const baseSize = (shoulderWidth * 0.12) * userScale;
+    // Torso yaw/twist perspective calculation from 3D z-depth differences
+    const dzShoulder = (rightShoulder.z || 0) - (leftShoulder.z || 0);
+    const dzHip = (rightHip.z || 0) - (leftHip.z || 0);
+    const avgDz = (dzShoulder + dzHip) * 0.5;
+    const torsoYaw = Math.max(-0.6, Math.min(0.6, avgDz * 1.8));
+
+    // Base jewelry pixel scale proportional to user's torso size in view
+    // A standard navel barbell is ~25-30% of torso width
+    const hipWidth = Math.hypot(rightHip.x - leftHip.x, rightHip.y - leftHip.y);
+    const refTorsoWidth = Math.max(shoulderWidth, hipWidth) || 160;
+    const baseSize = (refTorsoWidth * 0.14) * userScale;
 
     const rawNavel = {
       x: rawX,
       y: rawY,
-      scale: baseSize,
-      rotation: torsoRoll,
+      scale: Math.max(14, Math.min(100, baseSize)),
+      rotation: torsoRoll || 0,
+      yaw: torsoYaw,
       confidence: Math.max(0.1, Math.min(1.0, visConfidence)),
       torsoHeight,
-      shoulderWidth
+      torsoWidth: refTorsoWidth
     };
 
-    this.smoothed.navel = this.smoothPoint(this.smoothed.navel, rawNavel);
-    return this.smoothed.navel;
+    // Smooth point with adaptive acceleration
+    if (!this.smoothedNavel) {
+      this.smoothedNavel = { ...rawNavel };
+    } else {
+      const dx = rawNavel.x - this.smoothedNavel.x;
+      const dy = rawNavel.y - this.smoothedNavel.y;
+      const dist = Math.hypot(dx, dy);
+
+      // Adaptive smoothing: catch up fast if user moved, lock tightly if stationary
+      const adaptiveAlpha = dist > 40 ? 0.65 : dist > 10 ? 0.45 : 0.28;
+
+      this.smoothedNavel.x += (rawNavel.x - this.smoothedNavel.x) * adaptiveAlpha;
+      this.smoothedNavel.y += (rawNavel.y - this.smoothedNavel.y) * adaptiveAlpha;
+      this.smoothedNavel.scale += (rawNavel.scale - this.smoothedNavel.scale) * adaptiveAlpha;
+      this.smoothedNavel.rotation += (rawNavel.rotation - this.smoothedNavel.rotation) * adaptiveAlpha;
+      this.smoothedNavel.yaw += (rawNavel.yaw - this.smoothedNavel.yaw) * adaptiveAlpha;
+      this.smoothedNavel.confidence += (rawNavel.confidence - this.smoothedNavel.confidence) * 0.2;
+    }
+
+    return this.smoothedNavel;
   }
 }
