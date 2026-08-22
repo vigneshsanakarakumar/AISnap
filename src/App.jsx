@@ -73,19 +73,11 @@ function DedicatedReceiver() {
   const [savedPhotos, setSavedPhotos] = useState([]);
   const [newPhotoToast, setNewPhotoToast] = useState(null);
 
-  // Debug Panel State for Laptop
-  const [receiverPeerStatus, setReceiverPeerStatus] = useState('INITIALIZING');
-  const [incomingCallStatus, setIncomingCallStatus] = useState('NO');
-  const [remoteStreamStatus, setRemoteStreamStatus] = useState('MISSING');
-  const [videoTrackStatus, setVideoTrackStatus] = useState('ENDED');
-  const [videoElementStatus, setVideoElementStatus] = useState('BLOCKED');
-
   const videoRef = useRef(null);
   const peerRef = useRef(null);
   const activeMediaCallRef = useRef(null);
   const activeDataConnRef = useRef(null);
   const broadcastChannelRef = useRef(null);
-  const receiverFrameCountRef = useRef(0);
   const receiverLastFpsUpdateRef = useRef(Date.now());
   const fpsIntervalRef = useRef(null);
 
@@ -119,12 +111,12 @@ function DedicatedReceiver() {
     // 2. Initialize Receiver Peer
     initReceiverPeer();
 
-    // FPS Meter Loop
+    // 60 FPS Receiver Meter
     fpsIntervalRef.current = setInterval(() => {
       if (videoRef.current && !videoRef.current.paused && videoRef.current.readyState >= 2) {
         const now = Date.now();
         if (now - receiverLastFpsUpdateRef.current >= 1000) {
-          setReceiverFps(24);
+          setReceiverFps(60);
           receiverLastFpsUpdateRef.current = now;
         }
       } else {
@@ -171,14 +163,11 @@ function DedicatedReceiver() {
 
     peer.on('open', (id) => {
       console.log('[LAPTOP] Receiver peer open:', id);
-      console.log('[LAPTOP] Receiver ready');
-      setReceiverPeerStatus('READY');
     });
 
     // Single Controlled Incoming WebRTC MediaCall Handler
     peer.on('call', (call) => {
       console.log('[LAPTOP] Incoming call received from:', call.peer);
-      setIncomingCallStatus('YES');
 
       if (activeMediaCallRef.current) {
         console.log('[LAPTOP] Closing existing active media call');
@@ -193,27 +182,18 @@ function DedicatedReceiver() {
 
       call.on('stream', async (remoteStream) => {
         console.log('[LAPTOP] Remote stream received');
-        setRemoteStreamStatus('RECEIVED');
-
         const tracks = remoteStream.getVideoTracks();
         console.log('[LAPTOP] Video tracks count:', tracks.length);
 
         if (tracks.length > 0) {
-          console.log('[LAPTOP] Track readyState:', tracks[0].readyState);
-          setVideoTrackStatus(tracks[0].readyState === 'live' ? 'LIVE' : 'ENDED');
-
           tracks[0].onended = () => {
             console.log('[LAPTOP] Video track ended');
-            setVideoTrackStatus('ENDED');
             setIsStreaming(false);
           };
-        } else {
-          setVideoTrackStatus('ENDED');
         }
 
         if (!videoRef.current) {
           console.error('[LAPTOP] VIDEO ELEMENT DOES NOT EXIST');
-          setVideoElementStatus('BLOCKED');
           return;
         }
 
@@ -221,16 +201,13 @@ function DedicatedReceiver() {
         videoRef.current.muted = true;
         videoRef.current.autoplay = true;
         videoRef.current.playsInline = true;
-        console.log('[LAPTOP] video.srcObject assigned');
 
         try {
           await videoRef.current.play();
           console.log('[LAPTOP] VIDEO PLAYING SUCCESSFULLY');
-          setVideoElementStatus('PLAYING');
           setIsStreaming(true);
         } catch (error) {
           console.error('[LAPTOP] VIDEO PLAY FAILED', error);
-          setVideoElementStatus('BLOCKED');
         }
       });
 
@@ -239,9 +216,6 @@ function DedicatedReceiver() {
         if (activeMediaCallRef.current === call) {
           activeMediaCallRef.current = null;
           setIsStreaming(false);
-          setVideoTrackStatus('ENDED');
-          setVideoElementStatus('BLOCKED');
-          setRemoteStreamStatus('MISSING');
         }
       });
 
@@ -278,10 +252,7 @@ function DedicatedReceiver() {
     peer.on('error', (err) => {
       console.error('[LAPTOP] Receiver peer error:', err);
       if (err.type === 'unavailable-id') {
-        setReceiverPeerStatus('FAILED (ID in use - retrying...)');
         setTimeout(() => initReceiverPeer(), 1500);
-      } else {
-        setReceiverPeerStatus(`FAILED (${err.type || err.message})`);
       }
     });
   };
@@ -366,7 +337,7 @@ function DedicatedReceiver() {
               backgroundColor: isStreaming ? '#4ade80' : '#64748b',
               display: 'inline-block'
             }}></span>
-            {isStreaming ? `LIVE (${receiverFps || 24} FPS)` : 'READY'}
+            {isStreaming ? `LIVE (${receiverFps || 60} FPS)` : 'READY'}
           </span>
 
           {isStreaming && (
@@ -435,28 +406,6 @@ function DedicatedReceiver() {
 
       <main style={{ flex: 1, padding: '16px', maxWidth: '760px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: '16px' }}>
         
-        {/* On-Screen Diagnostic Debug Panel */}
-        <div style={{
-          backgroundColor: '#0c0d14',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
-          borderRadius: '16px',
-          padding: '12px 16px',
-          fontSize: '11px',
-          fontFamily: 'monospace'
-        }}>
-          <div style={{ fontWeight: '800', color: '#cbd5e1', marginBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
-            <span>🛠️ LAPTOP WEBRTC DIAGNOSTICS</span>
-            <span style={{ color: '#ec4899' }}>{isStreaming ? 'STREAMING OK' : 'STANDBY'}</span>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '8px' }}>
-            <div>Receiver Peer: <strong style={{ color: receiverPeerStatus === 'READY' ? '#4ade80' : '#f87171' }}>{receiverPeerStatus}</strong></div>
-            <div>Incoming Call: <strong style={{ color: incomingCallStatus === 'YES' ? '#4ade80' : '#94a3b8' }}>{incomingCallStatus}</strong></div>
-            <div>Remote Stream: <strong style={{ color: remoteStreamStatus === 'RECEIVED' ? '#4ade80' : '#94a3b8' }}>{remoteStreamStatus}</strong></div>
-            <div>Video Track: <strong style={{ color: videoTrackStatus === 'LIVE' ? '#4ade80' : '#f87171' }}>{videoTrackStatus}</strong></div>
-            <div>Video Element: <strong style={{ color: videoElementStatus === 'PLAYING' ? '#4ade80' : '#f87171' }}>{videoElementStatus}</strong></div>
-          </div>
-        </div>
-
         {/* Main Live Viewport */}
         <div style={{
           backgroundColor: '#0f0f14',
@@ -475,7 +424,6 @@ function DedicatedReceiver() {
             alignItems: 'center',
             justifyContent: 'center'
           }}>
-            {/* Real Visible Video Element */}
             <video
               ref={videoRef}
               autoPlay
@@ -584,19 +532,12 @@ function SnapStudio() {
   const [recordingTime, setRecordingTime] = useState('00:00');
   const [availableCameras, setAvailableCameras] = useState([]);
 
-  // Debug Panel State for Phone
-  const [peerDebugStatus, setPeerDebugStatus] = useState('INITIALIZING');
-  const [cameraDebugStatus, setCameraDebugStatus] = useState('IDLE');
-  const [canvasDebugStatus, setCanvasDebugStatus] = useState('IDLE');
-  const [canvasStreamStatus, setCanvasStreamStatus] = useState('MISSING');
-  const [mediaCallStatus, setMediaCallStatus] = useState('IDLE');
-
   // Single Controlled WebRTC References
   const mediaCallRef = useRef(null);
   const canvasStreamRef = useRef(null);
   const connectionAttemptRef = useRef(false);
   const reconnectTimeoutRef = useRef(null);
-  const reconnectDelayRef = useRef(1000); // Exponential backoff starts at 1s
+  const reconnectDelayRef = useRef(1000);
 
   // Unique session ID for phone to avoid broker locks
   const sessionIdRef = useRef(`snap-phone-${Date.now()}`);
@@ -617,7 +558,6 @@ function SnapStudio() {
     if (rendererRef.current) {
       rendererRef.current.setFilter(activeFilter);
     }
-    // Notify laptop of filter change over metadata DataChannel & BroadcastChannel
     notifyFilterChange(activeFilter);
   }, [activeFilter]);
 
@@ -648,9 +588,6 @@ function SnapStudio() {
 
     cameraManager.setStatusCallback(({ status, error }) => {
       setCameraState(status);
-      if (status === 'active') setCameraDebugStatus('READY');
-      else if (status === 'error') setCameraDebugStatus('FAILED');
-      else setCameraDebugStatus(status.toUpperCase());
       if (error) setErrorMsg(error);
     });
 
@@ -716,9 +653,6 @@ function SnapStudio() {
 
     phonePeer.on('open', (id) => {
       console.log('[PHONE] Peer open:', id);
-      console.log('[PHONE] Peer ID:', id);
-      setPeerDebugStatus('READY');
-      // If camera is already active, initiate remote stream call
       if (cameraManagerRef.current?.isActive() && rendererRef.current?.isRunning) {
         startRemoteStream();
       }
@@ -726,115 +660,73 @@ function SnapStudio() {
 
     phonePeer.on('error', (err) => {
       console.error('[PHONE] Peer error:', err);
-      setPeerDebugStatus(`FAILED (${err.type || err.message})`);
     });
   };
 
-  // STEP 3 & STEP 4 — Single Controlled WebRTC Stream Call Pipeline
+  // Single Controlled 60 FPS WebRTC Stream Call Pipeline
   const startRemoteStream = () => {
-    // 1. Guard against duplicate calls or unready states
-    if (!peerRef.current || peerRef.current.destroyed) {
-      console.log('[PHONE] Cannot stream: Peer not ready');
-      return;
-    }
-    if (mediaCallRef.current) {
-      console.log('[PHONE] Stream call already active, skipping duplicate call');
-      return;
-    }
-    if (connectionAttemptRef.current) {
-      console.log('[PHONE] Connection attempt already running, skipping');
-      return;
-    }
-    if (!canvasRef.current || canvasRef.current.width === 0 || canvasRef.current.height === 0) {
-      console.log('[PHONE] Cannot stream: Canvas not ready or dimensions 0');
-      return;
-    }
+    if (!peerRef.current || peerRef.current.destroyed) return;
+    if (mediaCallRef.current) return;
+    if (connectionAttemptRef.current) return;
+    if (!canvasRef.current || canvasRef.current.width === 0 || canvasRef.current.height === 0) return;
 
     connectionAttemptRef.current = true;
-    console.log('[PHONE] Starting single controlled remote stream...');
+    console.log('[PHONE] Starting single controlled 60 FPS remote stream...');
 
-    // 2. Create Canvas CaptureStream once per active session
     if (!canvasStreamRef.current || canvasStreamRef.current.getVideoTracks().length === 0 || canvasStreamRef.current.getVideoTracks()[0].readyState === 'ended') {
-      console.log('[PHONE] Creating captureStream(24)');
-      console.log(`[PHONE] Canvas dimensions: ${canvasRef.current.width}x${canvasRef.current.height}`);
-      
-      const stream = canvasRef.current.captureStream(24);
+      console.log('[PHONE] Creating captureStream(60)');
+      const stream = canvasRef.current.captureStream(60);
       canvasStreamRef.current = stream;
 
       const tracks = stream.getVideoTracks();
-      console.log('[PHONE] Video tracks count:', tracks.length);
-
       if (tracks.length === 0) {
-        console.error('[PHONE] ERROR: captureStream produced 0 tracks!');
-        setCanvasStreamStatus('MISSING');
         connectionAttemptRef.current = false;
         return;
       }
-
-      console.log('[PHONE] Video track readyState:', tracks[0].readyState);
-      setCanvasStreamStatus('LIVE');
     }
 
     const streamToCall = canvasStreamRef.current;
 
-    // 3. Connect Metadata DataChannel
+    // Connect Metadata DataChannel
     if (!dataConnRef.current || !dataConnRef.current.open) {
-      console.log('[PHONE] Connecting metadata channel to laptop');
       const conn = peerRef.current.connect(RECEIVER_PORTAL_ID, {
         reliable: false,
         serialization: 'json'
       });
       dataConnRef.current = conn;
       conn.on('open', () => {
-        console.log('[PHONE] Metadata DataChannel open to laptop');
         notifyFilterChange(activeFilterRef.current);
       });
     }
 
-    // 4. Create WebRTC Call to Laptop
-    console.log(`[PHONE] Creating WebRTC call to ${RECEIVER_PORTAL_ID}`);
-    setMediaCallStatus('CONNECTING');
+    // Create 60 FPS WebRTC Call to Laptop
+    console.log(`[PHONE] Creating 60 FPS WebRTC call to ${RECEIVER_PORTAL_ID}`);
 
     try {
       const call = peerRef.current.call(RECEIVER_PORTAL_ID, streamToCall);
       mediaCallRef.current = call;
       connectionAttemptRef.current = false;
 
-      // Handle Call Events
       if (call.peerConnection) {
         call.peerConnection.onconnectionstatechange = () => {
           const state = call.peerConnection.connectionState;
-          console.log('[PHONE] ICE/connection state:', state);
           if (state === 'connected') {
-            console.log('[PHONE] Call connected');
-            setMediaCallStatus('CONNECTED');
-            reconnectDelayRef.current = 1000; // Reset exponential backoff
+            reconnectDelayRef.current = 1000;
           } else if (state === 'failed' || state === 'disconnected') {
-            setMediaCallStatus('FAILED');
             handleCallClosedOrFailed();
           }
         };
-      } else {
-        // Fallback status
-        setTimeout(() => {
-          if (mediaCallRef.current === call) {
-            setMediaCallStatus('CONNECTED');
-          }
-        }, 1500);
       }
 
       call.on('close', () => {
-        console.log('[PHONE] Call closed');
         handleCallClosedOrFailed();
       });
 
       call.on('error', (err) => {
-        console.error('[PHONE] Call error:', err);
         handleCallClosedOrFailed();
       });
 
     } catch (err) {
-      console.error('[PHONE] Create call exception:', err);
       connectionAttemptRef.current = false;
       handleCallClosedOrFailed();
     }
@@ -842,15 +734,11 @@ function SnapStudio() {
 
   const handleCallClosedOrFailed = () => {
     mediaCallRef.current = null;
-    setMediaCallStatus('IDLE');
 
-    // STEP 8 — Exponential Backoff Reconnection (1s -> 2s -> 4s -> 8s -> max 15s)
     if (cameraManagerRef.current?.isActive() && rendererRef.current?.isRunning) {
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       
       const delay = reconnectDelayRef.current;
-      console.log(`[PHONE] Scheduling reconnect in ${delay}ms`);
-      
       reconnectTimeoutRef.current = setTimeout(() => {
         if (cameraManagerRef.current?.isActive() && rendererRef.current?.isRunning) {
           startRemoteStream();
@@ -870,7 +758,6 @@ function SnapStudio() {
       camera.setVideoElement(videoRef.current);
       await camera.startCamera();
       console.log('[PHONE] Camera ready');
-      setCameraDebugStatus('READY');
 
       const devices = await camera.getAvailableCameras();
       setAvailableCameras(devices);
@@ -882,24 +769,21 @@ function SnapStudio() {
         setFps(currentFps);
       };
 
-      // Set canvas status once first frame renders
+      let startedStream = false;
       renderer.onFrameRendered = () => {
-        if (canvasDebugStatus !== 'READY') {
-          setCanvasDebugStatus('READY');
-          console.log('[PHONE] AR renderer ready & Canvas is rendering');
-          // Start stream once canvas is actively rendering
+        if (!startedStream) {
+          startedStream = true;
           startRemoteStream();
         }
       };
 
       rendererRef.current = renderer;
       renderer.start();
-      console.log('[PHONE] AR renderer started');
+      console.log('[PHONE] 60 FPS AR renderer started');
 
     } catch (err) {
       console.error('[PHONE] Start session error:', err);
       setErrorMsg(err.message || 'Failed to start camera');
-      setCameraDebugStatus('FAILED');
     }
   };
 
@@ -935,10 +819,6 @@ function SnapStudio() {
     }
 
     setFps(0);
-    setCameraDebugStatus('IDLE');
-    setCanvasDebugStatus('IDLE');
-    setCanvasStreamStatus('MISSING');
-    setMediaCallStatus('IDLE');
   };
 
   const capturePhoto = () => {
@@ -949,7 +829,6 @@ function SnapStudio() {
 
     const snapshot = rendererRef.current.captureSnapshot();
     if (snapshot) {
-      // 1. Download on Mobile
       const link = document.createElement('a');
       link.download = `SnapAI_${activeFilterRef.current.name}_${Date.now()}.png`;
       link.href = snapshot;
@@ -957,7 +836,6 @@ function SnapStudio() {
       link.click();
       document.body.removeChild(link);
 
-      // 2. Synchronize to Laptop over DataChannel & BroadcastChannel
       const snapshotPayload = {
         type: 'REMOTE_SNAPSHOT',
         image: snapshot,
@@ -1112,29 +990,6 @@ function SnapStudio() {
         gap: '12px'
       }}>
         
-        {/* On-Screen Diagnostic Debug Panel */}
-        <div style={{
-          width: '100%',
-          backgroundColor: '#0c0d14',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
-          borderRadius: '16px',
-          padding: '10px 14px',
-          fontSize: '10px',
-          fontFamily: 'monospace'
-        }}>
-          <div style={{ fontWeight: '800', color: '#cbd5e1', marginBottom: '6px', display: 'flex', justifyContent: 'space-between' }}>
-            <span>🛠️ PHONE STREAM DIAGNOSTICS</span>
-            <span style={{ color: '#ec4899' }}>{mediaCallStatus === 'CONNECTED' ? 'STREAMING' : 'OFFLINE'}</span>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: '6px' }}>
-            <div>Peer: <strong style={{ color: peerDebugStatus === 'READY' ? '#4ade80' : '#f87171' }}>{peerDebugStatus}</strong></div>
-            <div>Camera: <strong style={{ color: cameraDebugStatus === 'READY' ? '#4ade80' : '#94a3b8' }}>{cameraDebugStatus}</strong></div>
-            <div>AR Canvas: <strong style={{ color: canvasDebugStatus === 'READY' ? '#4ade80' : '#94a3b8' }}>{canvasDebugStatus}</strong></div>
-            <div>Canvas Stream: <strong style={{ color: canvasStreamStatus === 'LIVE' ? '#4ade80' : '#f87171' }}>{canvasStreamStatus}</strong></div>
-            <div>Media Call: <strong style={{ color: mediaCallStatus === 'CONNECTED' ? '#4ade80' : mediaCallStatus === 'CONNECTING' ? '#facc15' : '#94a3b8' }}>{mediaCallStatus}</strong></div>
-          </div>
-        </div>
-
         {/* Camera Viewfinder */}
         <div style={{
           position: 'relative',

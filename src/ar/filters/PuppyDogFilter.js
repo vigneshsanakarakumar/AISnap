@@ -17,72 +17,85 @@ export class PuppyDogFilter extends ARFilter {
 
     if (!faceGeometry) return;
 
-    const { eyeMidpoint, faceWidth, faceHeight, roll, noseTip } = faceGeometry;
-    const earSwing = Math.sin(time) * 0.06;
+    const {
+      leftEarTop,
+      rightEarTop,
+      noseTip,
+      lowerLip,
+      mouthOpen,
+      faceWidth,
+      faceHeight,
+      roll
+    } = faceGeometry;
+
+    const earSwing = Math.sin(time) * 0.05;
+    const earW = faceWidth * 0.22;
+    const earH = faceHeight * 0.38;
 
     ctx.save();
 
-    // --- Left Puppy Ear ---
+    // --- Left Puppy Ear (Anchored directly to left upper temple/forehead) ---
     ctx.save();
-    ctx.translate(cx_relative(eyeMidpoint.x, -faceWidth * 0.45, roll), cy_relative(eyeMidpoint.y, -faceHeight * 0.6, roll));
-    ctx.rotate(roll - 0.35 + earSwing);
-    
-    const leftEarGrad = ctx.createLinearGradient(-30, -70, 30, 70);
+    ctx.translate(leftEarTop.x, leftEarTop.y);
+    ctx.rotate(roll - 0.28 + earSwing);
+
+    const leftEarGrad = ctx.createLinearGradient(-earW / 2, -earH / 2, earW / 2, earH / 2);
     leftEarGrad.addColorStop(0, '#92400e');
     leftEarGrad.addColorStop(0.5, '#b45309');
     leftEarGrad.addColorStop(1, '#78350f');
     ctx.fillStyle = leftEarGrad;
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
-    ctx.shadowBlur = 12;
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+    ctx.shadowBlur = 14;
     ctx.beginPath();
-    ctx.ellipse(0, 0, faceWidth * 0.18, faceHeight * 0.32, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 0, earW / 2, earH / 2, 0, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.shadowBlur = 0;
-    const leftPinkGrad = ctx.createLinearGradient(0, -40, 0, 40);
+    const leftPinkGrad = ctx.createLinearGradient(0, -earH * 0.3, 0, earH * 0.3);
     leftPinkGrad.addColorStop(0, '#fbcfe8');
     leftPinkGrad.addColorStop(1, '#f472b6');
     ctx.fillStyle = leftPinkGrad;
     ctx.beginPath();
-    ctx.ellipse(0, 8, faceWidth * 0.09, faceHeight * 0.2, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, earH * 0.08, earW * 0.28, earH * 0.3, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 
-    // --- Right Puppy Ear ---
+    // --- Right Puppy Ear (Anchored directly to right upper temple/forehead) ---
     ctx.save();
-    ctx.translate(cx_relative(eyeMidpoint.x, faceWidth * 0.45, roll), cy_relative(eyeMidpoint.y, -faceHeight * 0.6, roll));
-    ctx.rotate(roll + 0.35 - earSwing);
+    ctx.translate(rightEarTop.x, rightEarTop.y);
+    ctx.rotate(roll + 0.28 - earSwing);
 
-    const rightEarGrad = ctx.createLinearGradient(-30, -70, 30, 70);
+    const rightEarGrad = ctx.createLinearGradient(-earW / 2, -earH / 2, earW / 2, earH / 2);
     rightEarGrad.addColorStop(0, '#92400e');
     rightEarGrad.addColorStop(0.5, '#b45309');
     rightEarGrad.addColorStop(1, '#78350f');
     ctx.fillStyle = rightEarGrad;
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
-    ctx.shadowBlur = 12;
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+    ctx.shadowBlur = 14;
     ctx.beginPath();
-    ctx.ellipse(0, 0, faceWidth * 0.18, faceHeight * 0.32, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 0, earW / 2, earH / 2, 0, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.shadowBlur = 0;
-    const rightPinkGrad = ctx.createLinearGradient(0, -40, 0, 40);
+    const rightPinkGrad = ctx.createLinearGradient(0, -earH * 0.3, 0, earH * 0.3);
     rightPinkGrad.addColorStop(0, '#fbcfe8');
     rightPinkGrad.addColorStop(1, '#f472b6');
     ctx.fillStyle = rightPinkGrad;
     ctx.beginPath();
-    ctx.ellipse(0, 8, faceWidth * 0.09, faceHeight * 0.2, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, earH * 0.08, earW * 0.28, earH * 0.3, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 
-    // --- Realistic Puppy Nose ---
+    // --- Puppy Nose (Anchored directly on noseTip apex) ---
     ctx.save();
     ctx.translate(noseTip.x, noseTip.y);
     ctx.rotate(roll);
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
     ctx.shadowBlur = 10;
-    ctx.shadowOffsetY = 4;
-    const noseW = faceWidth * 0.26;
-    const noseH = noseW * 0.68;
+    ctx.shadowOffsetY = 3;
+
+    const noseW = faceWidth * 0.25;
+    const noseH = noseW * 0.65;
 
     const noseGrad = ctx.createRadialGradient(0, -4, 4, 0, -4, noseW * 0.6);
     noseGrad.addColorStop(0, '#3f3f46');
@@ -95,25 +108,26 @@ export class PuppyDogFilter extends ARFilter {
 
     // Nose Highlight
     ctx.shadowBlur = 0;
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
     ctx.beginPath();
     ctx.ellipse(-noseW * 0.18, -noseH * 0.2, noseW * 0.14, noseH * 0.15, -0.2, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 
-    // --- Puppy Tongue ---
+    // --- Puppy Tongue (Anchored to lowerLip) ---
     ctx.save();
-    ctx.translate(noseTip.x, noseTip.y + faceHeight * 0.26);
+    ctx.translate(lowerLip.x, lowerLip.y + 4);
     ctx.rotate(roll);
+
     const tongueBounce = Math.sin(time * 1.5) * 4;
     const tongueW = faceWidth * 0.18;
-    const tongueH = faceHeight * 0.22 + tongueBounce;
+    const tongueH = faceHeight * 0.2 + (mouthOpen * 0.5) + tongueBounce;
 
     const tongueGrad = ctx.createLinearGradient(0, 0, 0, tongueH);
     tongueGrad.addColorStop(0, '#fb7185');
     tongueGrad.addColorStop(1, '#e11d48');
     ctx.fillStyle = tongueGrad;
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
     ctx.shadowBlur = 8;
     ctx.beginPath();
     ctx.roundRect(-tongueW / 2, 0, tongueW, tongueH, tongueW * 0.45);
@@ -130,11 +144,4 @@ export class PuppyDogFilter extends ARFilter {
 
     ctx.restore();
   }
-}
-
-function cx_relative(ox, dx, angle) {
-  return ox + dx * Math.cos(angle);
-}
-function cy_relative(oy, dy, angle) {
-  return oy + dy * Math.sin(angle);
 }

@@ -4,7 +4,7 @@
 
 // Exponential Moving Average filter for smooth tracking without jitter
 export class LandmarkSmoother {
-  constructor(smoothingFactor = 0.65) {
+  constructor(smoothingFactor = 0.5) {
     this.factor = smoothingFactor;
     this.previous = null;
   }
@@ -25,11 +25,11 @@ export class LandmarkSmoother {
       const cur = currentLandmarks[i];
       const prev = this.previous[i];
 
-      // Dynamic smoothing: adapt alpha based on velocity to reduce lag on fast motion
+      // High-performance responsive smoothing for 60+ FPS
       const dx = cur.x - prev.x;
       const dy = cur.y - prev.y;
       const dist = Math.hypot(dx, dy);
-      const adaptiveFactor = dist > 0.05 ? 0.3 : dist > 0.01 ? 0.5 : this.factor;
+      const adaptiveFactor = dist > 0.04 ? 0.15 : dist > 0.01 ? 0.35 : this.factor;
 
       const sx = prev.x * adaptiveFactor + cur.x * (1 - adaptiveFactor);
       const sy = prev.y * adaptiveFactor + cur.y * (1 - adaptiveFactor);
@@ -48,7 +48,7 @@ export class LandmarkSmoother {
 }
 
 /**
- * Calculate geometric metrics from face landmarks
+ * Calculate geometric metrics & pinpoint anatomical anchors from face landmarks
  */
 export function extractFaceGeometry(landmarks, width, height) {
   if (!landmarks || landmarks.length < 468) {
@@ -65,24 +65,37 @@ export function extractFaceGeometry(landmarks, width, height) {
     };
   };
 
-  // Key landmark indices (MediaPipe 468/478 face mesh standard)
-  const leftEye = pt(33);      // Left outer corner
-  const leftInner = pt(133);   // Left inner corner
-  const leftCenter = pt(468) || pt(159); // Left pupil/center
+  // Accurate Anatomical Landmark Indices (MediaPipe 468/478 FaceMesh)
+  const leftEye = pt(33);                 // Left outer corner
+  const leftInner = pt(133);              // Left inner corner
+  const leftCenter = pt(468) || pt(159);  // Left pupil / iris center
 
-  const rightEye = pt(263);    // Right outer corner
-  const rightInner = pt(362);  // Right inner corner
-  const rightCenter = pt(473) || pt(386); // Right pupil/center
+  const rightEye = pt(263);               // Right outer corner
+  const rightInner = pt(362);             // Right inner corner
+  const rightCenter = pt(473) || pt(386); // Right pupil / iris center
 
-  const noseBridge = pt(168);  // Glabella / Mid eyes
-  const noseTip = pt(1);       // Nose apex
-  const noseBottom = pt(2);    // Subnasale
-  const chin = pt(152);        // Menton / Chin bottom
-  const forehead = pt(10);     // Forehead apex
-  const leftCheek = pt(234);   // Left zygomatic arch
-  const rightCheek = pt(454);  // Right zygomatic arch
+  const noseBridge = pt(168);             // Glabella / Mid eyes
+  const noseTip = pt(1);                  // Nose apex
+  const noseBottom = pt(2);               // Subnasale
+  const leftNostril = pt(98);
+  const rightNostril = pt(327);
+
+  const chin = pt(152);                   // Menton / Chin bottom
+  const forehead = pt(10);                // Forehead top apex
+  const leftForeheadTop = pt(103);        // Left upper forehead
+  const rightForeheadTop = pt(332);       // Right upper forehead
+  const leftEarTop = pt(127);             // Left upper ear / temple
+  const rightEarTop = pt(356);            // Right upper ear / temple
+
+  const leftCheek = pt(234);              // Left zygomatic arch
+  const rightCheek = pt(454);             // Right zygomatic arch
+  const leftCheekCenter = pt(117);        // Left cheek apple
+  const rightCheekCenter = pt(346);       // Right cheek apple
+
   const upperLip = pt(13);
   const lowerLip = pt(14);
+  const upperLipTop = pt(0);
+  const lowerLipBottom = pt(17);
   const mouthLeft = pt(61);
   const mouthRight = pt(291);
 
@@ -93,10 +106,11 @@ export function extractFaceGeometry(landmarks, width, height) {
     z: (leftCenter.z + rightCenter.z) / 2
   };
 
-  // Inter-pupillary distance & Face width
+  // Inter-pupillary distance & Face dimensions
   const eyeDistance = Math.hypot(rightCenter.x - leftCenter.x, rightCenter.y - leftCenter.y);
   const faceWidth = Math.hypot(rightCheek.x - leftCheek.x, rightCheek.y - leftCheek.y);
   const faceHeight = Math.hypot(chin.x - forehead.x, chin.y - forehead.y);
+  const mouthOpen = Math.hypot(lowerLip.x - upperLip.x, lowerLip.y - upperLip.y);
 
   // Roll (tilt angle in radians)
   const roll = Math.atan2(rightCenter.y - leftCenter.y, rightCenter.x - leftCenter.x);
@@ -116,20 +130,32 @@ export function extractFaceGeometry(landmarks, width, height) {
     noseBridge,
     noseTip,
     noseBottom,
+    leftNostril,
+    rightNostril,
     chin,
     forehead,
+    leftForeheadTop,
+    rightForeheadTop,
+    leftEarTop,
+    rightEarTop,
     leftCheek,
     rightCheek,
+    leftCheekCenter,
+    rightCheekCenter,
     upperLip,
     lowerLip,
+    upperLipTop,
+    lowerLipBottom,
     mouthLeft,
     mouthRight,
     eyeDistance,
     faceWidth,
     faceHeight,
+    mouthOpen,
     roll,
     yaw,
     pitch,
-    rawLandmarks: landmarks
+    rawLandmarks: landmarks,
+    pt
   };
 }

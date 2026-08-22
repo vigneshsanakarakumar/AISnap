@@ -65,7 +65,7 @@ export class CameraManager {
     const videoConstraints = {
       width: { ideal: 1280, max: 1920 },
       height: { ideal: 720, max: 1080 },
-      frameRate: { ideal: 30, max: 60 }
+      frameRate: { ideal: 60, max: 120 }
     };
 
     if (this.selectedDeviceId) {

@@ -17,73 +17,83 @@ export class BunnyRabbitFilter extends ARFilter {
 
     if (!faceGeometry) return;
 
-    const { eyeMidpoint, faceWidth, faceHeight, roll, noseTip } = faceGeometry;
+    const {
+      leftForeheadTop,
+      rightForeheadTop,
+      noseTip,
+      leftCheekCenter,
+      rightCheekCenter,
+      faceWidth,
+      faceHeight,
+      roll
+    } = faceGeometry;
+
     const earWiggle = Math.sin(time * 1.8) * 0.04;
+    const earW = faceWidth * 0.18;
+    const earH = faceHeight * 0.55;
 
     ctx.save();
-    ctx.translate(eyeMidpoint.x, eyeMidpoint.y);
+
+    // --- Left Bunny Ear (Anchored to leftForeheadTop) ---
+    ctx.save();
+    ctx.translate(leftForeheadTop.x, leftForeheadTop.y);
+    ctx.rotate(roll - 0.12 + earWiggle);
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = '#f472b6';
+    ctx.lineWidth = 3.5;
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.ellipse(0, -earH * 0.45, earW / 2, earH / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#fbcfe8';
+    ctx.beginPath();
+    ctx.ellipse(0, -earH * 0.42, earW * 0.3, earH * 0.36, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // --- Right Bunny Ear (Anchored to rightForeheadTop) ---
+    ctx.save();
+    ctx.translate(rightForeheadTop.x, rightForeheadTop.y);
+    ctx.rotate(roll + 0.12 - earWiggle);
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = '#f472b6';
+    ctx.lineWidth = 3.5;
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.ellipse(0, -earH * 0.45, earW / 2, earH / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#fbcfe8';
+    ctx.beginPath();
+    ctx.ellipse(0, -earH * 0.42, earW * 0.3, earH * 0.36, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // --- Bunny Nose (Anchored directly at noseTip) ---
+    ctx.save();
+    ctx.translate(noseTip.x, noseTip.y);
     ctx.rotate(roll);
-
-    const earSpan = faceWidth * 0.32;
-    const earY = -faceHeight * 0.72;
-    const earW = faceWidth * 0.16;
-    const earH = faceHeight * 0.52;
-
-    // Left Bunny Ear
-    ctx.save();
-    ctx.translate(-earSpan, earY);
-    ctx.rotate(-0.12 + earWiggle);
-    ctx.fillStyle = '#ffffff';
-    ctx.strokeStyle = '#f472b6';
-    ctx.lineWidth = 3.5;
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-    ctx.shadowBlur = 10;
-    ctx.beginPath();
-    ctx.ellipse(0, 0, earW / 2, earH / 2, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = '#fbcfe8';
-    ctx.beginPath();
-    ctx.ellipse(0, 6, earW * 0.32, earH * 0.36, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-
-    // Right Bunny Ear
-    ctx.save();
-    ctx.translate(earSpan, earY);
-    ctx.rotate(0.12 - earWiggle);
-    ctx.fillStyle = '#ffffff';
-    ctx.strokeStyle = '#f472b6';
-    ctx.lineWidth = 3.5;
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-    ctx.shadowBlur = 10;
-    ctx.beginPath();
-    ctx.ellipse(0, 0, earW / 2, earH / 2, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = '#fbcfe8';
-    ctx.beginPath();
-    ctx.ellipse(0, 6, earW * 0.32, earH * 0.36, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-
-    // Bunny Twitchy Nose
-    const relNoseY = noseTip.y - eyeMidpoint.y;
     ctx.fillStyle = '#fb7185';
     ctx.beginPath();
-    ctx.ellipse(0, relNoseY + 4, 15, 11, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 0, 14, 10, 0, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
 
-    // Rosy Cheeks
+    // --- Rosy Cheeks Blush ---
+    ctx.save();
     ctx.fillStyle = 'rgba(251, 113, 133, 0.35)';
     ctx.beginPath();
-    ctx.ellipse(-faceWidth * 0.34, relNoseY + 12, 28, 16, 0, 0, Math.PI * 2);
-    ctx.ellipse(faceWidth * 0.34, relNoseY + 12, 28, 16, 0, 0, Math.PI * 2);
+    ctx.ellipse(leftCheekCenter.x, leftCheekCenter.y, faceWidth * 0.12, faceWidth * 0.08, roll, 0, Math.PI * 2);
+    ctx.ellipse(rightCheekCenter.x, rightCheekCenter.y, faceWidth * 0.12, faceWidth * 0.08, roll, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
 
     ctx.restore();
   }
