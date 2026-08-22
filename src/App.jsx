@@ -1152,7 +1152,7 @@ function SnapStudio() {
                 gap: '6px'
               }}>
                 <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#ec4899', display: 'inline-block' }}></span>
-                Live on /aa
+                you are ready to go!!
               </div>
 
               <button
