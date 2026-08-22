@@ -1,9 +1,15 @@
 import React, { useState, useEffect, useRef, Component } from 'react';
 import Peer from 'peerjs';
 
+import { CameraManager } from './ar/camera/CameraManager.js';
+import { FaceTracker } from './ar/tracking/FaceTracker.js';
+import { ARRenderer } from './ar/renderer/ARRenderer.js';
+import { ARRecorder } from './ar/utils/recorder.js';
+import { ALL_FILTERS, getFilterById } from './ar/filters/index.js';
+
 const DEFAULT_ROOM_ID = 'aisnap-live-cloud-channel';
 
-// Error Boundary
+// Error Boundary to ensure zero crash screen
 class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
@@ -23,14 +29,14 @@ class ErrorBoundary extends Component {
       return (
         <div style={{ padding: '32px', backgroundColor: '#09090c', color: '#f87171', minHeight: '100vh', fontFamily: 'monospace' }}>
           <h2>⚠️ Interface Runtime Error</h2>
-          <pre style={{ marginTop: '12px', background: '#000', padding: '16px', borderRadius: '8px', color: '#fca5a5' }}>
+          <pre style={{ marginTop: '12px', background: '#000', padding: '16px', borderRadius: '8px', color: '#fca5a5', overflowX: 'auto' }}>
             {this.state.error?.toString()}
           </pre>
           <button
             onClick={() => window.location.reload()}
-            style={{ marginTop: '20px', padding: '10px 20px', background: '#fff', color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
+            style={{ marginTop: '20px', padding: '12px 24px', background: '#fff', color: '#000', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}
           >
-            Reload App
+            Reload Application
           </button>
         </div>
       );
@@ -39,19 +45,7 @@ class ErrorBoundary extends Component {
   }
 }
 
-const CUTE_LENSES = [
-  { id: 'dog_lens', name: 'Puppy', icon: '🐶', theme: '#f59e0b', css: 'contrast(108%) brightness(106%)', overlay: 'dog' },
-  { id: 'cat_lens', name: 'Kitty', icon: '🐱', theme: '#ec4899', css: 'contrast(112%) saturate(130%)', overlay: 'cat' },
-  { id: 'bunny_lens', name: 'Bunny', icon: '🐰', theme: '#f472b6', css: 'brightness(110%) contrast(106%)', overlay: 'bunny' },
-  { id: 'sakura_crown', name: 'Sakura', icon: '🌸', theme: '#fb7185', css: 'saturate(135%) brightness(108%)', overlay: 'sakura' },
-  { id: 'star_crown', name: 'Tiara', icon: '👑', theme: '#eab308', css: 'brightness(112%) contrast(110%)', overlay: 'crown' },
-  { id: 'cyber_visor', name: 'Visor', icon: '🕶️', theme: '#38bdf8', css: 'contrast(125%) saturate(120%)', overlay: 'visor' },
-  { id: 'pop_comic', name: 'Comic', icon: '💥', theme: '#a855f7', css: 'saturate(260%) contrast(140%) brightness(105%)', overlay: 'dots' },
-  { id: 'silver_ai', name: 'Chrome', icon: '🤖', theme: '#94a3b8', css: 'grayscale(100%) contrast(160%) brightness(110%)', overlay: 'neural' },
-  { id: 'raw', name: 'Original', icon: '📷', theme: '#64748b', css: 'none', overlay: null }
-];
-
-// Dedicated Receiver Portal (/aa)
+// Dedicated Receiver Portal (/aa) with Internet WebRTC & Local Sync
 function DedicatedReceiver() {
   const [remoteImage, setRemoteImage] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
@@ -76,13 +70,13 @@ function DedicatedReceiver() {
 
         channel.onmessage = (event) => {
           try {
-            const { type, data, filterName, filterIcon, timestamp } = event.data || {};
+            const { type, frame, filterName, filterIcon, timestamp } = event.data || {};
             if (type === 'SNAP_FRAME') {
-              setRemoteImage(data);
+              setRemoteImage(frame);
               setRemoteFilterName(filterName || 'Filter');
               setRemoteFilterIcon(filterIcon || '✨');
               setRemoteTimestamp(timestamp || new Date().toLocaleTimeString());
-              setConnectionState('CONNECTED (LOCAL LINK)');
+              setConnectionState('CONNECTED (LOCAL SYNC)');
               updateFps();
             } else if (type === 'SNAP_STREAM_CLOSED') {
               setRemoteImage(null);
@@ -122,7 +116,7 @@ function DedicatedReceiver() {
         setRemoteStream(stream);
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
-          videoRef.current.play().catch((e) => console.warn('Stream play error:', e));
+          videoRef.current.play().catch(console.warn);
         }
         setConnectionState('CONNECTED (INTERNET WEBRTC)');
       });
@@ -325,7 +319,7 @@ function DedicatedReceiver() {
                   {connectionState}
                 </div>
                 <p style={{ fontSize: '12px', color: '#64748b', marginTop: '6px', maxWidth: '300px', margin: '6px auto 0 auto' }}>
-                  Waiting for live stream from main page
+                  Waiting for live stream from main studio
                 </p>
               </div>
             )}
@@ -342,34 +336,61 @@ function DedicatedReceiver() {
   );
 }
 
-// Main Cute SnapStudio
+// Main Production Web AR Camera Studio
 function SnapStudio() {
-  const [stream, setStream] = useState(null);
-  const [activeFilter, setActiveFilter] = useState(CUTE_LENSES[0]);
-  const [isBroadcasting, setIsBroadcasting] = useState(false);
+  // State
+  const [activeFilter, setActiveFilter] = useState(ALL_FILTERS[0]);
+  const [selectedCategory, setSelectedCategory] = useState('All');
+  const [cameraState, setCameraState] = useState('idle'); // 'idle' | 'initializing' | 'active' | 'error' | 'stopped'
+  const [isFaceDetected, setIsFaceDetected] = useState(false);
   const [fps, setFps] = useState(0);
   const [errorMsg, setErrorMsg] = useState(null);
-  const [facingMode, setFacingMode] = useState('user');
-  const [snapshotEffect, setSnapshotEffect] = useState(false);
+  const [snapshotFlash, setSnapshotFlash] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState('00:00');
   const [cloudPeersCount, setCloudPeersCount] = useState(0);
+  const [availableCameras, setAvailableCameras] = useState([]);
 
+  // Refs for AR Modules
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
-  const broadcastChannelRef = useRef(null);
+  const cameraManagerRef = useRef(null);
+  const faceTrackerRef = useRef(null);
+  const rendererRef = useRef(null);
+  const recorderRef = useRef(null);
   const peerRef = useRef(null);
+  const broadcastChannelRef = useRef(null);
   const connectedClientsRef = useRef([]);
-  const animationFrameRef = useRef(null);
-  const lastFrameTimeRef = useRef(Date.now());
-  const frameCountRef = useRef(0);
-  const lastFpsUpdateRef = useRef(Date.now());
 
-  // REF FOR ACTIVE FILTER to fix React closure state bug during live rendering
+  // Active filter ref for real-time 60fps render loop sync
   const activeFilterRef = useRef(activeFilter);
   useEffect(() => {
     activeFilterRef.current = activeFilter;
+    if (rendererRef.current) {
+      rendererRef.current.setFilter(activeFilter);
+    }
   }, [activeFilter]);
 
+  // Initialize Modules & PeerJS Host on Mount
   useEffect(() => {
+    const cameraManager = new CameraManager();
+    const faceTracker = new FaceTracker();
+    const recorder = new ARRecorder();
+
+    cameraManagerRef.current = cameraManager;
+    faceTrackerRef.current = faceTracker;
+    recorderRef.current = recorder;
+
+    // Camera Status listener
+    cameraManager.setStatusCallback(({ status, error }) => {
+      setCameraState(status);
+      if (error) setErrorMsg(error);
+    });
+
+    // Face Tracker Model Initialization (runs asynchronously in background)
+    faceTracker.initialize().catch(console.warn);
+
+    // Setup Local BroadcastChannel
     try {
       if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
         broadcastChannelRef.current = new BroadcastChannel('snap_filter_broadcast_stream');
@@ -378,6 +399,7 @@ function SnapStudio() {
       console.warn('BroadcastChannel error:', e);
     }
 
+    // Setup PeerJS Cloud Host for Global Internet Streaming
     const hostPeer = new Peer(DEFAULT_ROOM_ID, {
       debug: 1,
       config: {
@@ -391,7 +413,7 @@ function SnapStudio() {
     peerRef.current = hostPeer;
 
     hostPeer.on('open', (id) => {
-      console.log('PeerJS Host Ready on Cloud:', id);
+      console.log('PeerJS Host Ready:', id);
     });
 
     hostPeer.on('connection', (conn) => {
@@ -409,148 +431,69 @@ function SnapStudio() {
     });
 
     hostPeer.on('call', (call) => {
-      if (canvasRef.current && canvasRef.current.captureStream) {
-        const canvasStream = canvasRef.current.captureStream(25);
-        call.answer(canvasStream);
+      if (rendererRef.current) {
+        const stream = rendererRef.current.getCanvasStream(25);
+        if (stream) call.answer(stream);
       }
     });
 
     return () => {
-      if (broadcastChannelRef.current) {
-        try { broadcastChannelRef.current.close(); } catch (e) {}
-      }
+      if (cameraManager) cameraManager.stopCamera();
+      if (faceTracker) faceTracker.dispose();
+      if (rendererRef.current) rendererRef.current.stop();
       if (hostPeer) {
         try { hostPeer.destroy(); } catch (e) {}
       }
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
+      if (broadcastChannelRef.current) {
+        try { broadcastChannelRef.current.close(); } catch (e) {}
       }
     };
   }, []);
 
-  const startSession = async (facing = facingMode) => {
+  // Single-Step Start Session
+  const startSession = async () => {
     setErrorMsg(null);
+    if (!videoRef.current || !canvasRef.current) return;
+
     try {
-      if (stream) {
-        stream.getTracks().forEach((t) => t.stop());
-      }
+      const camera = cameraManagerRef.current;
+      camera.setVideoElement(videoRef.current);
+      await camera.startCamera();
 
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: facing,
-          width: { ideal: 720 },
-          height: { ideal: 960 }
-        },
-        audio: false
-      });
+      // Check available cameras
+      const devices = await camera.getAvailableCameras();
+      setAvailableCameras(devices);
 
-      setStream(mediaStream);
-      setIsBroadcasting(true);
+      // Initialize Renderer
+      const renderer = new ARRenderer(canvasRef.current, videoRef.current, faceTrackerRef.current);
+      renderer.setFilter(activeFilterRef.current);
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-        videoRef.current.play().catch((e) => console.warn('Play error:', e));
-      }
+      renderer.onFpsUpdate = (currentFps, hasFace) => {
+        setFps(currentFps);
+        setIsFaceDetected(hasFace);
+      };
 
-      startRenderLoop();
-    } catch (err) {
-      setErrorMsg(err.name + ': ' + err.message);
-    }
-  };
-
-  const flipCamera = () => {
-    const newFacing = facingMode === 'user' ? 'environment' : 'user';
-    setFacingMode(newFacing);
-    if (stream) {
-      startSession(newFacing);
-    }
-  };
-
-  const stopSession = () => {
-    if (stream) {
-      stream.getTracks().forEach((track) => {
-        try { track.stop(); } catch (e) {}
-      });
-    }
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-    }
-    
-    if (broadcastChannelRef.current) {
-      try {
-        broadcastChannelRef.current.postMessage({ type: 'SNAP_STREAM_CLOSED' });
-      } catch (e) {}
-    }
-
-    setStream(null);
-    setIsBroadcasting(false);
-    setFps(0);
-  };
-
-  const capturePhoto = () => {
-    if (canvasRef.current && stream) {
-      setSnapshotEffect(true);
-      setTimeout(() => setSnapshotEffect(false), 200);
-
-      try {
-        const imageURL = canvasRef.current.toDataURL('image/png');
-        const link = document.createElement('a');
-        link.download = `SnapAI_${activeFilterRef.current.name}_${Date.now()}.png`;
-        link.href = imageURL;
-        link.click();
-      } catch (e) {
-        console.error('Snapshot error:', e);
-      }
-    }
-  };
-
-  const startRenderLoop = () => {
-    const render = () => {
-      if (videoRef.current && canvasRef.current && videoRef.current.readyState >= 2) {
-        const video = videoRef.current;
-        const canvas = canvasRef.current;
-        const ctx = canvas.getContext('2d');
-
-        canvas.width = video.videoWidth || 640;
-        canvas.height = video.videoHeight || 480;
-
-        // Dynamic active filter read from ref (fixes lens switching instantly)
-        const currentLens = activeFilterRef.current;
-
-        ctx.save();
-        if (currentLens.css && currentLens.css !== 'none') {
-          ctx.filter = currentLens.css;
-        }
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        ctx.restore();
-
-        // Draw Ultra-Cute & Realistic AR Snap Lenses
-        drawRealisticSnapLens(ctx, canvas.width, canvas.height, currentLens.overlay);
-
-        frameCountRef.current += 1;
-        const now = Date.now();
-        if (now - lastFpsUpdateRef.current >= 1000) {
-          setFps(frameCountRef.current);
-          frameCountRef.current = 0;
-          lastFpsUpdateRef.current = now;
-        }
-
-        // Live Frame Sync to Local Tabs & Cloud Peers
-        if (now - lastFrameTimeRef.current > 45) {
+      // Frame Broadcaster Hook for Receiver & Cloud Peers
+      let lastBroadcastTime = 0;
+      renderer.onFrameRendered = (canvas, filter, timestamp) => {
+        const now = performance.now();
+        if (now - lastBroadcastTime > 45) {
           try {
             const frameData = canvas.toDataURL('image/jpeg', 0.55);
             const payload = {
               type: 'SNAP_FRAME',
               frame: frameData,
-              filterName: currentLens.name,
-              filterIcon: currentLens.icon,
+              filterName: filter ? filter.name : 'Lens',
+              filterIcon: filter ? filter.icon : '✨',
               timestamp: new Date().toLocaleTimeString()
             };
 
+            // Local BroadcastChannel
             if (broadcastChannelRef.current) {
               broadcastChannelRef.current.postMessage(payload);
             }
 
+            // Cloud WebRTC DataChannels
             if (connectedClientsRef.current.length > 0) {
               connectedClientsRef.current.forEach((conn) => {
                 if (conn.open) {
@@ -558,8 +501,8 @@ function SnapStudio() {
                     conn.send({
                       type: 'FRAME_DATA',
                       frame: frameData,
-                      filterName: currentLens.name,
-                      filterIcon: currentLens.icon,
+                      filterName: payload.filterName,
+                      filterIcon: payload.filterIcon,
                       timestamp: payload.timestamp
                     });
                   } catch (e) {}
@@ -567,443 +510,103 @@ function SnapStudio() {
               });
             }
 
-            lastFrameTimeRef.current = now;
+            lastBroadcastTime = now;
           } catch (e) {
-            console.warn('Broadcast error:', e);
+            console.warn('Frame broadcast error:', e);
           }
         }
-      }
+      };
 
-      animationFrameRef.current = requestAnimationFrame(render);
-    };
+      rendererRef.current = renderer;
+      renderer.start();
 
-    render();
+    } catch (err) {
+      setErrorMsg(err.message || 'Failed to start camera');
+    }
   };
 
-  const drawRoundRect = (ctx, x, y, w, h, r) => {
-    if (typeof ctx.roundRect === 'function') {
-      ctx.roundRect(x, y, w, h, r);
+  const flipCamera = async () => {
+    if (!cameraManagerRef.current) return;
+    try {
+      await cameraManagerRef.current.switchCamera();
+    } catch (err) {
+      setErrorMsg(err.message);
+    }
+  };
+
+  const stopSession = () => {
+    if (cameraManagerRef.current) {
+      cameraManagerRef.current.stopCamera();
+    }
+    if (rendererRef.current) {
+      rendererRef.current.stop();
+    }
+    if (recorderRef.current && isRecording) {
+      recorderRef.current.stopRecording().catch(console.warn);
+      setIsRecording(false);
+    }
+    if (broadcastChannelRef.current) {
+      try {
+        broadcastChannelRef.current.postMessage({ type: 'SNAP_STREAM_CLOSED' });
+      } catch (e) {}
+    }
+
+    setFps(0);
+    setIsFaceDetected(false);
+  };
+
+  // High-Res Photo Snapshot Capture
+  const capturePhoto = () => {
+    if (!rendererRef.current || cameraState !== 'active') return;
+
+    setSnapshotFlash(true);
+    setTimeout(() => setSnapshotFlash(false), 220);
+
+    const snapshot = rendererRef.current.captureSnapshot();
+    if (snapshot) {
+      const link = document.createElement('a');
+      link.download = `SnapAI_${activeFilterRef.current.name}_${Date.now()}.png`;
+      link.href = snapshot;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  };
+
+  // Video Recording Toggle
+  const toggleRecording = async () => {
+    const recorder = recorderRef.current;
+    if (!recorder || !canvasRef.current || cameraState !== 'active') return;
+
+    if (!isRecording) {
+      try {
+        recorder.startRecording(canvasRef.current, (time) => {
+          setRecordingTime(time);
+        });
+        setIsRecording(true);
+      } catch (err) {
+        setErrorMsg(err.message);
+      }
     } else {
-      ctx.rect(x, y, w, h);
+      try {
+        const result = await recorder.stopRecording();
+        setIsRecording(false);
+        setRecordingTime('00:00');
+        if (result && result.url) {
+          recorder.downloadVideo(result.url, activeFilterRef.current.name);
+        }
+      } catch (err) {
+        setErrorMsg('Error exporting video: ' + err.message);
+      }
     }
   };
 
-  // Ultra Realistic Snapchat-Grade AR Filter Renderer
-  const drawRealisticSnapLens = (ctx, width, height, overlayType) => {
-    const cx = width / 2;
-    const cy = height / 2;
-    const time = Date.now() / 350;
+  const categories = ['All', 'Cute AR', 'Beauty', 'Cyber', 'Cinematic', 'Artistic', 'AR Props'];
+  const filteredList = selectedCategory === 'All'
+    ? ALL_FILTERS
+    : ALL_FILTERS.filter((f) => f.category === selectedCategory || (selectedCategory === 'Cute AR' && f.category === 'Cute AR'));
 
-    if (overlayType === 'dog') {
-      ctx.save();
-      const earSwing = Math.sin(time) * 0.05;
-
-      // --- Left Puppy Ear ---
-      ctx.save();
-      ctx.translate(cx - (width * 0.22), cy - (height * 0.28));
-      ctx.rotate(-0.35 + earSwing);
-      
-      // Outer brown gradient
-      const leftEarGrad = ctx.createLinearGradient(-30, -70, 30, 70);
-      leftEarGrad.addColorStop(0, '#92400e');
-      leftEarGrad.addColorStop(0.5, '#b45309');
-      leftEarGrad.addColorStop(1, '#78350f');
-      ctx.fillStyle = leftEarGrad;
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
-      ctx.shadowBlur = 12;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, width * 0.075, height * 0.17, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Inner pink ear
-      ctx.shadowBlur = 0;
-      const leftPinkGrad = ctx.createLinearGradient(0, -40, 0, 40);
-      leftPinkGrad.addColorStop(0, '#fbcfe8');
-      leftPinkGrad.addColorStop(1, '#f472b6');
-      ctx.fillStyle = leftPinkGrad;
-      ctx.beginPath();
-      ctx.ellipse(0, 5, width * 0.042, height * 0.11, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-
-      // --- Right Puppy Ear ---
-      ctx.save();
-      ctx.translate(cx + (width * 0.22), cy - (height * 0.28));
-      ctx.rotate(0.35 - earSwing);
-
-      const rightEarGrad = ctx.createLinearGradient(-30, -70, 30, 70);
-      rightEarGrad.addColorStop(0, '#92400e');
-      rightEarGrad.addColorStop(0.5, '#b45309');
-      rightEarGrad.addColorStop(1, '#78350f');
-      ctx.fillStyle = rightEarGrad;
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
-      ctx.shadowBlur = 12;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, width * 0.075, height * 0.17, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.shadowBlur = 0;
-      const rightPinkGrad = ctx.createLinearGradient(0, -40, 0, 40);
-      rightPinkGrad.addColorStop(0, '#fbcfe8');
-      rightPinkGrad.addColorStop(1, '#f472b6');
-      ctx.fillStyle = rightPinkGrad;
-      ctx.beginPath();
-      ctx.ellipse(0, 5, width * 0.042, height * 0.11, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-
-      // --- Realistic Puppy Nose ---
-      ctx.save();
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
-      ctx.shadowBlur = 10;
-      ctx.shadowOffsetY = 4;
-      const noseGrad = ctx.createRadialGradient(cx, cy - 8, 4, cx, cy - 8, 30);
-      noseGrad.addColorStop(0, '#3f3f46');
-      noseGrad.addColorStop(0.7, '#18181b');
-      noseGrad.addColorStop(1, '#09090b');
-      ctx.fillStyle = noseGrad;
-      ctx.beginPath();
-      drawRoundRect(ctx, cx - 28, cy - 14, 56, 40, 18);
-      ctx.fill();
-
-      // Nose Shine
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
-      ctx.beginPath();
-      ctx.ellipse(cx - 10, cy - 5, 8, 4, -0.2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-
-      // --- Animated Puppy Tongue ---
-      ctx.save();
-      const tongueBounce = Math.sin(time * 1.5) * 4;
-      const tongueGrad = ctx.createLinearGradient(0, cy + 28, 0, cy + 76 + tongueBounce);
-      tongueGrad.addColorStop(0, '#fb7185');
-      tongueGrad.addColorStop(1, '#e11d48');
-      ctx.fillStyle = tongueGrad;
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-      ctx.shadowBlur = 8;
-      ctx.beginPath();
-      drawRoundRect(ctx, cx - 18, cy + 28, 36, 48 + tongueBounce, 18);
-      ctx.fill();
-
-      // Tongue Center Crease
-      ctx.shadowBlur = 0;
-      ctx.strokeStyle = '#9f1239';
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      ctx.moveTo(cx, cy + 32);
-      ctx.lineTo(cx, cy + 62 + tongueBounce);
-      ctx.stroke();
-      ctx.restore();
-
-      ctx.restore();
-    } else if (overlayType === 'cat') {
-      ctx.save();
-      
-      // Kitty Ear Twitch Animation
-      const earTwitch = Math.sin(time * 2) > 0.8 ? Math.sin(time * 20) * 0.06 : 0;
-
-      // Left Ear
-      ctx.save();
-      ctx.translate(cx - (width * 0.16), cy - (height * 0.24));
-      ctx.rotate(-0.15 + earTwitch);
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
-      ctx.shadowBlur = 10;
-      ctx.fillStyle = '#0f172a';
-      ctx.strokeStyle = '#f472b6';
-      ctx.lineWidth = 4;
-      ctx.beginPath();
-      ctx.moveTo(-45, 50);
-      ctx.lineTo(0, -65);
-      ctx.lineTo(45, 40);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-
-      // Inner Ear Pink
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = '#f472b6';
-      ctx.beginPath();
-      ctx.moveTo(-30, 45);
-      ctx.lineTo(0, -45);
-      ctx.lineTo(30, 38);
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
-
-      // Right Ear
-      ctx.save();
-      ctx.translate(cx + (width * 0.16), cy - (height * 0.24));
-      ctx.rotate(0.15 - earTwitch);
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
-      ctx.shadowBlur = 10;
-      ctx.fillStyle = '#0f172a';
-      ctx.strokeStyle = '#f472b6';
-      ctx.lineWidth = 4;
-      ctx.beginPath();
-      ctx.moveTo(45, 50);
-      ctx.lineTo(0, -65);
-      ctx.lineTo(-45, 40);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = '#f472b6';
-      ctx.beginPath();
-      ctx.moveTo(30, 45);
-      ctx.lineTo(0, -45);
-      ctx.lineTo(-30, 38);
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
-
-      // Cute Pink Kitty Nose
-      ctx.save();
-      ctx.fillStyle = '#fb7185';
-      ctx.shadowColor = 'rgba(251, 113, 133, 0.6)';
-      ctx.shadowBlur = 8;
-      ctx.beginPath();
-      ctx.moveTo(cx - 16, cy - 8);
-      ctx.lineTo(cx + 16, cy - 8);
-      ctx.lineTo(cx, cy + 14);
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
-
-      // Kitty Cheeks Blush
-      ctx.fillStyle = 'rgba(244, 114, 182, 0.3)';
-      ctx.beginPath();
-      ctx.ellipse(cx - 85, cy + 15, 26, 16, 0, 0, Math.PI * 2);
-      ctx.ellipse(cx + 85, cy + 15, 26, 16, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Whiskers with Glow
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 3.5;
-      ctx.lineCap = 'round';
-      ctx.shadowColor = 'rgba(255, 255, 255, 0.8)';
-      ctx.shadowBlur = 6;
-
-      ctx.beginPath();
-      ctx.moveTo(cx - 35, cy);
-      ctx.lineTo(cx - 130, cy - 14);
-      ctx.moveTo(cx - 35, cy + 8);
-      ctx.lineTo(cx - 135, cy + 10);
-      ctx.moveTo(cx - 35, cy + 16);
-      ctx.lineTo(cx - 125, cy + 32);
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.moveTo(cx + 35, cy);
-      ctx.lineTo(cx + 130, cy - 14);
-      ctx.moveTo(cx + 35, cy + 8);
-      ctx.lineTo(cx + 135, cy + 10);
-      ctx.moveTo(cx + 35, cy + 16);
-      ctx.lineTo(cx + 125, cy + 32);
-      ctx.stroke();
-
-      ctx.restore();
-    } else if (overlayType === 'bunny') {
-      ctx.save();
-      const earWiggle = Math.sin(time * 1.8) * 0.04;
-
-      // Left Bunny Ear
-      ctx.save();
-      ctx.translate(cx - (width * 0.13), cy - (height * 0.33));
-      ctx.rotate(-0.12 + earWiggle);
-      ctx.fillStyle = '#ffffff';
-      ctx.strokeStyle = '#f472b6';
-      ctx.lineWidth = 3.5;
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-      ctx.shadowBlur = 10;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, width * 0.065, height * 0.22, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = '#fbcfe8';
-      ctx.beginPath();
-      ctx.ellipse(0, 5, width * 0.038, height * 0.15, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-
-      // Right Bunny Ear
-      ctx.save();
-      ctx.translate(cx + (width * 0.13), cy - (height * 0.33));
-      ctx.rotate(0.12 - earWiggle);
-      ctx.fillStyle = '#ffffff';
-      ctx.strokeStyle = '#f472b6';
-      ctx.lineWidth = 3.5;
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-      ctx.shadowBlur = 10;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, width * 0.065, height * 0.22, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = '#fbcfe8';
-      ctx.beginPath();
-      ctx.ellipse(0, 5, width * 0.038, height * 0.15, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-
-      // Bunny Twitchy Nose
-      ctx.fillStyle = '#fb7185';
-      ctx.beginPath();
-      ctx.ellipse(cx, cy + 4, 15, 11, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Bunny Rosy Cheeks
-      ctx.fillStyle = 'rgba(251, 113, 133, 0.4)';
-      ctx.beginPath();
-      ctx.ellipse(cx - 75, cy + 20, 26, 16, 0, 0, Math.PI * 2);
-      ctx.ellipse(cx + 75, cy + 20, 26, 16, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.restore();
-    } else if (overlayType === 'sakura') {
-      ctx.save();
-      const crownY = cy - (height * 0.28) + Math.sin(time) * 6;
-
-      // Realistic Sakura Blossoms with 5 petals each
-      for (let i = -3; i <= 3; i++) {
-        const flowerX = cx + (i * (width * 0.082));
-        const flowerY = crownY + Math.abs(i) * 9;
-        
-        ctx.save();
-        ctx.translate(flowerX, flowerY);
-        ctx.rotate(time * 0.3 + (i * 0.5));
-        
-        // 5 Heart-shaped petals
-        ctx.fillStyle = i % 2 === 0 ? '#fbcfe8' : '#f472b6';
-        ctx.shadowColor = 'rgba(244, 114, 182, 0.5)';
-        ctx.shadowBlur = 8;
-        for (let p = 0; p < 5; p++) {
-          const angle = (p * Math.PI * 2) / 5;
-          ctx.beginPath();
-          ctx.arc(Math.cos(angle) * 14, Math.sin(angle) * 14, 10, 0, Math.PI * 2);
-          ctx.fill();
-        }
-
-        // Flower Center
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = '#fef08a';
-        ctx.beginPath();
-        ctx.arc(0, 0, 6, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-      }
-
-      // Floating Sakura Petals
-      for (let s = 0; s < 7; s++) {
-        const sx = cx + Math.cos(time * 0.8 + s * 1.1) * (width * 0.32);
-        const sy = crownY + Math.sin(time * 1.2 + s) * 42;
-        ctx.fillStyle = '#fde047';
-        ctx.shadowColor = '#fde047';
-        ctx.shadowBlur = 8;
-        ctx.beginPath();
-        ctx.arc(sx, sy, 3.5 + Math.sin(time * 2 + s) * 2, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      ctx.restore();
-    } else if (overlayType === 'crown') {
-      ctx.save();
-      const floatY = cy - (height * 0.28) + Math.sin(time) * 6;
-
-      // Golden Crown Gradient
-      const goldGrad = ctx.createLinearGradient(0, floatY - 80, 0, floatY);
-      goldGrad.addColorStop(0, '#fef08a');
-      goldGrad.addColorStop(0.5, '#eab308');
-      goldGrad.addColorStop(1, '#ca8a04');
-      ctx.fillStyle = goldGrad;
-      ctx.strokeStyle = '#fef9c3';
-      ctx.lineWidth = 3.5;
-      ctx.shadowColor = 'rgba(234, 179, 8, 0.7)';
-      ctx.shadowBlur = 14;
-
-      ctx.beginPath();
-      ctx.moveTo(cx - 95, floatY);
-      ctx.lineTo(cx - 85, floatY - 55);
-      ctx.lineTo(cx - 45, floatY - 22);
-      ctx.lineTo(cx, floatY - 82);
-      ctx.lineTo(cx + 45, floatY - 22);
-      ctx.lineTo(cx + 85, floatY - 55);
-      ctx.lineTo(cx + 95, floatY);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-
-      // Sparkling Jewels
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = '#ec4899';
-      ctx.beginPath();
-      ctx.arc(cx, floatY - 65, 9, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.fillStyle = '#38bdf8';
-      ctx.beginPath();
-      ctx.arc(cx - 72, floatY - 44, 7, 0, Math.PI * 2);
-      ctx.arc(cx + 72, floatY - 44, 7, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.restore();
-    } else if (overlayType === 'visor') {
-      ctx.save();
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
-      ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 3;
-      ctx.shadowColor = '#38bdf8';
-      ctx.shadowBlur = 12;
-
-      ctx.beginPath();
-      drawRoundRect(ctx, cx - 130, cy - 35, 260, 50, 10);
-      ctx.fill();
-      ctx.stroke();
-
-      // Glowing Neon Beam
-      ctx.strokeStyle = '#06b6d4';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(cx - 110, cy - 10);
-      ctx.lineTo(cx + 110, cy - 10);
-      ctx.stroke();
-
-      ctx.restore();
-    } else if (overlayType === 'neural') {
-      ctx.save();
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([6, 6]);
-      ctx.strokeRect(cx - 100, cy - 110, 200, 230);
-
-      ctx.setLineDash([]);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
-      ctx.lineWidth = 2;
-      const scanY = (cy - 110) + ((Date.now() / 8) % 230);
-      ctx.beginPath();
-      ctx.moveTo(cx - 100, scanY);
-      ctx.lineTo(cx + 100, scanY);
-      ctx.stroke();
-
-      ctx.restore();
-    } else if (overlayType === 'dots') {
-      ctx.save();
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.08)';
-      for (let x = 0; x < width; x += 16) {
-        for (let y = 0; y < height; y += 16) {
-          ctx.beginPath();
-          ctx.arc(x, y, 2, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-      ctx.restore();
-    }
-  };
+  const isCameraActive = cameraState === 'active';
 
   return (
     <div style={{
@@ -1013,10 +616,10 @@ function SnapStudio() {
       backgroundColor: '#060609',
       color: '#f8fafc'
     }}>
-      {/* Mobile-First Header */}
+      {/* Mobile Header */}
       <header style={{
         padding: '12px 18px',
-        backgroundColor: 'rgba(10, 10, 14, 0.88)',
+        backgroundColor: 'rgba(10, 10, 14, 0.92)',
         backdropFilter: 'blur(20px)',
         borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
         display: 'flex',
@@ -1045,34 +648,59 @@ function SnapStudio() {
               SnapAI
             </h1>
             <p style={{ fontSize: '10px', color: '#94a3b8', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-              Cute AR Lenses
+              Real-Time Web AR Lenses
             </p>
           </div>
         </div>
 
         {/* Top Badges & Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {stream && (
+          {isCameraActive && (
             <>
-              <button
-                onClick={flipCamera}
-                title="Flip Camera"
-                style={{
-                  width: '34px',
-                  height: '34px',
+              {availableCameras.length > 1 && (
+                <button
+                  onClick={flipCamera}
+                  title="Flip Camera (Front/Rear)"
+                  style={{
+                    width: '34px',
+                    height: '34px',
+                    borderRadius: '50%',
+                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    color: '#ffffff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '15px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  🔄
+                </button>
+              )}
+
+              {/* Face Tracking Indicator */}
+              <span style={{
+                fontSize: '10px',
+                fontFamily: 'monospace',
+                color: isFaceDetected ? '#4ade80' : '#facc15',
+                backgroundColor: isFaceDetected ? 'rgba(34, 197, 94, 0.12)' : 'rgba(250, 204, 21, 0.12)',
+                border: `1px solid ${isFaceDetected ? 'rgba(34, 197, 94, 0.25)' : 'rgba(250, 204, 21, 0.25)'}`,
+                padding: '4px 8px',
+                borderRadius: '999px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}>
+                <span style={{
+                  width: '6px',
+                  height: '6px',
                   borderRadius: '50%',
-                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                  border: '1px solid rgba(255, 255, 255, 0.15)',
-                  color: '#ffffff',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '16px',
-                  cursor: 'pointer'
-                }}
-              >
-                🔄
-              </button>
+                  backgroundColor: isFaceDetected ? '#4ade80' : '#facc15',
+                  display: 'inline-block'
+                }}></span>
+                {isFaceDetected ? 'FACE TRACKED' : 'SCANNING'}
+              </span>
 
               <span style={{
                 fontSize: '10px',
@@ -1088,7 +716,7 @@ function SnapStudio() {
             </>
           )}
 
-          {isBroadcasting && (
+          {cloudPeersCount > 0 && (
             <span style={{
               fontSize: '10px',
               fontWeight: '700',
@@ -1098,7 +726,7 @@ function SnapStudio() {
               borderRadius: '999px',
               boxShadow: '0 0 12px rgba(236, 72, 153, 0.5)'
             }}>
-              LIVE {cloudPeersCount > 0 ? `(${cloudPeersCount} ☁️)` : ''}
+              LIVE ({cloudPeersCount} ☁️)
             </span>
           )}
         </div>
@@ -1114,15 +742,15 @@ function SnapStudio() {
         maxWidth: '580px',
         margin: '0 auto',
         width: '100%',
-        gap: '14px'
+        gap: '12px'
       }}>
         
-        {/* Camera Viewfinder Card */}
+        {/* Camera Viewfinder */}
         <div style={{
           position: 'relative',
           width: '100%',
           aspectRatio: '3/4',
-          maxHeight: '62vh',
+          maxHeight: '60vh',
           backgroundColor: '#0a0a0f',
           borderRadius: '24px',
           overflow: 'hidden',
@@ -1132,14 +760,39 @@ function SnapStudio() {
           alignItems: 'center',
           justifyContent: 'center'
         }}>
-          {snapshotEffect && (
+          {/* Flash Snapshot Animation */}
+          {snapshotFlash && (
             <div style={{
               position: 'absolute',
               inset: 0,
               backgroundColor: '#ffffff',
-              zIndex: 30,
+              zIndex: 40,
               pointerEvents: 'none'
             }} />
+          )}
+
+          {/* Recording Timer Badge */}
+          {isRecording && (
+            <div style={{
+              position: 'absolute',
+              top: '12px',
+              right: '12px',
+              zIndex: 30,
+              backgroundColor: 'rgba(239, 68, 68, 0.88)',
+              color: '#ffffff',
+              padding: '4px 10px',
+              borderRadius: '999px',
+              fontSize: '11px',
+              fontWeight: '800',
+              fontFamily: 'monospace',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: '0 0 12px rgba(239, 68, 68, 0.6)'
+            }}>
+              <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#ffffff', animation: 'pulseGlow 1s infinite' }}></span>
+              REC {recordingTime}
+            </div>
           )}
 
           <video ref={videoRef} playsInline muted style={{ display: 'none' }} />
@@ -1150,11 +803,12 @@ function SnapStudio() {
               width: '100%',
               height: '100%',
               objectFit: 'cover',
-              display: stream ? 'block' : 'none'
+              display: isCameraActive ? 'block' : 'none'
             }}
           />
 
-          {!stream && (
+          {/* Standby Onboarding Screen */}
+          {!isCameraActive && (
             <div style={{ textAlign: 'center', padding: '28px', color: '#94a3b8' }}>
               <div style={{
                 width: '68px',
@@ -1173,13 +827,14 @@ function SnapStudio() {
               <div style={{ fontSize: '18px', fontWeight: '800', color: '#ffffff', letterSpacing: '-0.01em' }}>
                 Can we start?
               </div>
-              <p style={{ fontSize: '12px', color: '#94a3b8', marginTop: '6px', maxWidth: '260px', margin: '6px auto 0 auto' }}>
+              <p style={{ fontSize: '12px', color: '#94a3b8', marginTop: '6px', maxWidth: '280px', margin: '6px auto 0 auto' }}>
                 Tap "shall we start cam for <strong>ar lens?</strong>"
               </p>
             </div>
           )}
 
-          {stream && (
+          {/* Active Lens Badge */}
+          {isCameraActive && (
             <div style={{
               position: 'absolute',
               top: '12px',
@@ -1194,15 +849,46 @@ function SnapStudio() {
               color: '#ffffff',
               display: 'flex',
               alignItems: 'center',
-              gap: '6px'
+              gap: '6px',
+              zIndex: 20
             }}>
               <span>{activeFilter.icon}</span>
-              <span>{activeFilter.name} Lens</span>
+              <span>{activeFilter.name}</span>
             </div>
           )}
         </div>
 
-        {/* Cute Touch-Friendly Lens Carousel */}
+        {/* Category Filter Pills */}
+        <div style={{
+          width: '100%',
+          display: 'flex',
+          gap: '6px',
+          overflowX: 'auto',
+          padding: '2px 0',
+          scrollbarWidth: 'none'
+        }}>
+          {categories.map((cat) => (
+            <button
+              key={cat}
+              onClick={() => setSelectedCategory(cat)}
+              style={{
+                padding: '4px 10px',
+                borderRadius: '999px',
+                border: selectedCategory === cat ? '1px solid #ec4899' : '1px solid rgba(255, 255, 255, 0.08)',
+                backgroundColor: selectedCategory === cat ? 'rgba(236, 72, 153, 0.2)' : 'rgba(255, 255, 255, 0.04)',
+                color: selectedCategory === cat ? '#ffffff' : '#94a3b8',
+                fontSize: '11px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+
+        {/* AR Filter Carousel (16 Filters) */}
         <div style={{ width: '100%' }}>
           <div
             className="lens-carousel"
@@ -1214,7 +900,7 @@ function SnapStudio() {
               scrollSnapType: 'x mandatory'
             }}
           >
-            {CUTE_LENSES.map((lens) => {
+            {filteredList.map((lens) => {
               const isSelected = activeFilter.id === lens.id;
               return (
                 <button
@@ -1228,12 +914,12 @@ function SnapStudio() {
                     justifyContent: 'center',
                     padding: '8px 14px',
                     borderRadius: '16px',
-                    backgroundColor: isSelected ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.04)',
-                    border: isSelected ? `2px solid ${lens.theme}` : '1px solid rgba(255, 255, 255, 0.08)',
+                    backgroundColor: isSelected ? 'rgba(255, 255, 255, 0.16)' : 'rgba(255, 255, 255, 0.04)',
+                    border: isSelected ? '2px solid #ec4899' : '1px solid rgba(255, 255, 255, 0.08)',
                     cursor: 'pointer',
                     scrollSnapAlign: 'center',
-                    minWidth: '70px',
-                    boxShadow: isSelected ? `0 0 16px ${lens.theme}60` : 'none',
+                    minWidth: '72px',
+                    boxShadow: isSelected ? '0 0 16px rgba(236, 72, 153, 0.6)' : 'none',
                     transform: isSelected ? 'scale(1.05)' : 'scale(1)',
                     transition: 'all 0.18s ease'
                   }}
@@ -1243,7 +929,8 @@ function SnapStudio() {
                     fontSize: '11px',
                     fontWeight: isSelected ? '800' : '600',
                     color: isSelected ? '#ffffff' : '#94a3b8',
-                    marginTop: '4px'
+                    marginTop: '4px',
+                    whiteSpace: 'nowrap'
                   }}>
                     {lens.name}
                   </span>
@@ -1253,9 +940,9 @@ function SnapStudio() {
           </div>
         </div>
 
-        {/* Action Bar */}
+        {/* Main Actions Control Bar */}
         <div style={{ width: '100%', marginTop: 'auto', paddingBottom: '8px' }}>
-          {!stream ? (
+          {!isCameraActive ? (
             <button
               onClick={() => startSession()}
               style={{
@@ -1279,31 +966,37 @@ function SnapStudio() {
               ✨ Yes, Start Lenses
             </button>
           ) : (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
-              <div style={{
-                flex: 1,
-                padding: '12px 14px',
-                backgroundColor: 'rgba(236, 72, 153, 0.15)',
-                border: '1px solid rgba(236, 72, 153, 0.3)',
-                borderRadius: '14px',
-                fontSize: '11px',
-                fontWeight: '700',
-                color: '#f472b6',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '6px'
-              }}>
-                <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#ec4899', display: 'inline-block' }}></span>
-                you are ready to go!!
-              </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+              {/* Video Record Toggle */}
+              <button
+                onClick={toggleRecording}
+                title={isRecording ? 'Stop Recording' : 'Record Video'}
+                style={{
+                  flex: 1,
+                  padding: '12px 14px',
+                  backgroundColor: isRecording ? 'rgba(239, 68, 68, 0.25)' : 'rgba(255, 255, 255, 0.08)',
+                  color: isRecording ? '#f87171' : '#ffffff',
+                  border: isRecording ? '1px solid #ef4444' : '1px solid rgba(255, 255, 255, 0.15)',
+                  borderRadius: '14px',
+                  cursor: 'pointer',
+                  fontWeight: '700',
+                  fontSize: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px'
+                }}
+              >
+                {isRecording ? '⏹ Stop Rec' : '🎥 Record'}
+              </button>
 
+              {/* Photo Shutter Capture Button */}
               <button
                 onClick={capturePhoto}
-                title="Take Snap Picture"
+                title="Take Snap Photo"
                 style={{
-                  width: '64px',
-                  height: '64px',
+                  width: '62px',
+                  height: '62px',
                   borderRadius: '50%',
                   backgroundColor: '#ffffff',
                   border: '4px solid rgba(255, 255, 255, 0.3)',
@@ -1312,12 +1005,14 @@ function SnapStudio() {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  fontSize: '22px'
+                  fontSize: '22px',
+                  flexShrink: 0
                 }}
               >
                 📸
               </button>
 
+              {/* Close Session Button */}
               <button
                 onClick={stopSession}
                 style={{
