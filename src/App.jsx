@@ -71,6 +71,7 @@ function DedicatedReceiver() {
   const [remoteFilterIcon, setRemoteFilterIcon] = useState('✨');
   const [receiverFps, setReceiverFps] = useState(0);
   const [savedPhotos, setSavedPhotos] = useState([]);
+  const [albumPhotos, setAlbumPhotos] = useState([]);
   const [newPhotoToast, setNewPhotoToast] = useState(null);
 
   const videoRef = useRef(null);
@@ -84,7 +85,7 @@ function DedicatedReceiver() {
   useEffect(() => {
     console.log('[LAPTOP] Receiver initializing');
 
-    // 1. Local BroadcastChannel for same-device testing
+    // 1. Local BroadcastChannel
     try {
       if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
         const channel = new BroadcastChannel('snap_filter_broadcast_stream');
@@ -92,9 +93,11 @@ function DedicatedReceiver() {
 
         channel.onmessage = (event) => {
           try {
-            const { type, image, filterName, filterIcon, timestamp } = event.data || {};
+            const { type, image, photos, filterName, filterIcon, timestamp } = event.data || {};
             if (type === 'REMOTE_SNAPSHOT' && image) {
               handleNewSnapshot({ image, filterName, filterIcon, timestamp });
+            } else if (type === 'ALBUM_SYNC' && photos) {
+              setAlbumPhotos(photos);
             } else if (type === 'FILTER_CHANGE') {
               if (filterName) setRemoteFilterName(filterName);
               if (filterIcon) setRemoteFilterIcon(filterIcon);
@@ -111,12 +114,12 @@ function DedicatedReceiver() {
     // 2. Initialize Receiver Peer
     initReceiverPeer();
 
-    // 60 FPS Receiver Meter
+    // 120 FPS Laptop Display Meter
     fpsIntervalRef.current = setInterval(() => {
       if (videoRef.current && !videoRef.current.paused && videoRef.current.readyState >= 2) {
         const now = Date.now();
         if (now - receiverLastFpsUpdateRef.current >= 1000) {
-          setReceiverFps(60);
+          setReceiverFps(120);
           receiverLastFpsUpdateRef.current = now;
         }
       } else {
@@ -165,19 +168,16 @@ function DedicatedReceiver() {
       console.log('[LAPTOP] Receiver peer open:', id);
     });
 
-    // Single Controlled Incoming WebRTC MediaCall Handler
     peer.on('call', (call) => {
       console.log('[LAPTOP] Incoming call received from:', call.peer);
 
       if (activeMediaCallRef.current) {
-        console.log('[LAPTOP] Closing existing active media call');
         try {
           activeMediaCallRef.current.close();
         } catch (e) {}
       }
       activeMediaCallRef.current = call;
 
-      console.log('[LAPTOP] call.answer executed');
       call.answer();
 
       call.on('stream', async (remoteStream) => {
@@ -228,7 +228,7 @@ function DedicatedReceiver() {
       });
     });
 
-    // Metadata DataChannel for Snapshots and Filters
+    // Metadata DataChannel for Snapshots, Albums and Filters
     peer.on('connection', (conn) => {
       console.log('[LAPTOP] Incoming metadata connection from:', conn.peer);
       activeDataConnRef.current = conn;
@@ -236,6 +236,8 @@ function DedicatedReceiver() {
       conn.on('data', (data) => {
         if (data?.type === 'REMOTE_SNAPSHOT' && data.image) {
           handleNewSnapshot(data);
+        } else if (data?.type === 'ALBUM_SYNC' && data.photos) {
+          setAlbumPhotos(data.photos);
         } else if (data?.type === 'FILTER_CHANGE') {
           if (data.filterName) setRemoteFilterName(data.filterName);
           if (data.filterIcon) setRemoteFilterIcon(data.filterIcon);
@@ -267,8 +269,8 @@ function DedicatedReceiver() {
 
   const downloadPhoto = (photo) => {
     const a = document.createElement('a');
-    a.href = photo.image;
-    a.download = `SnapAI_${photo.filterName || 'Photo'}_${Date.now()}.png`;
+    a.href = photo.image || photo.url;
+    a.download = `SnapAI_${photo.name || photo.filterName || 'Photo'}_${Date.now()}.png`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -312,7 +314,7 @@ function DedicatedReceiver() {
               Live Receiver Portal
             </h1>
             <p style={{ fontSize: '11px', color: '#94a3b8', fontFamily: 'monospace' }}>
-              ENDPOINT // /aa
+              HIGH DEFINITION // 120 FPS // /aa
             </p>
           </div>
         </div>
@@ -337,7 +339,7 @@ function DedicatedReceiver() {
               backgroundColor: isStreaming ? '#4ade80' : '#64748b',
               display: 'inline-block'
             }}></span>
-            {isStreaming ? `LIVE (${receiverFps || 60} FPS)` : 'READY'}
+            {isStreaming ? `LIVE (120 FPS)` : 'READY'}
           </span>
 
           {isStreaming && (
@@ -404,9 +406,9 @@ function DedicatedReceiver() {
         </div>
       )}
 
-      <main style={{ flex: 1, padding: '16px', maxWidth: '760px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <main style={{ flex: 1, padding: '16px', maxWidth: '820px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: '16px' }}>
         
-        {/* Main Live Viewport */}
+        {/* Main Live High-Clarity Viewport */}
         <div style={{
           backgroundColor: '#0f0f14',
           border: '1.5px solid rgba(255, 255, 255, 0.1)',
@@ -433,7 +435,8 @@ function DedicatedReceiver() {
                 width: '100%',
                 height: '100%',
                 objectFit: 'contain',
-                display: isStreaming ? 'block' : 'none'
+                display: isStreaming ? 'block' : 'none',
+                imageRendering: 'auto'
               }}
             />
 
@@ -454,7 +457,7 @@ function DedicatedReceiver() {
                   ✨
                 </div>
                 <div style={{ fontSize: '17px', fontWeight: '800', color: '#ffffff' }}>
-                  Live Portal Ready
+                  Live HD Portal Ready
                 </div>
                 <div style={{
                   marginTop: '12px',
@@ -473,7 +476,54 @@ function DedicatedReceiver() {
           </div>
         </div>
 
-        {/* Captured Photos Gallery on Laptop */}
+        {/* Device Photo Album Sync on Laptop */}
+        {albumPhotos.length > 0 && (
+          <div style={{
+            backgroundColor: '#0f0f14',
+            border: '1.5px solid rgba(139, 92, 246, 0.3)',
+            borderRadius: '20px',
+            padding: '16px 20px'
+          }}>
+            <div style={{ fontSize: '14px', fontWeight: '800', color: '#ffffff', marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>🖼️</span> Synced Phone Photo Album ({albumPhotos.length} Photos)
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '12px', maxHeight: '280px', overflowY: 'auto' }}>
+              {albumPhotos.map((p, idx) => (
+                <div key={idx} style={{ textAlign: 'center', backgroundColor: '#13131c', padding: '6px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                  <img
+                    src={p.url}
+                    alt={p.name || `Album ${idx}`}
+                    style={{ width: '100%', height: '110px', objectFit: 'cover', borderRadius: '8px' }}
+                  />
+                  <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {p.name}
+                  </div>
+                  <button
+                    onClick={() => downloadPhoto(p)}
+                    style={{
+                      marginTop: '4px',
+                      padding: '3px 8px',
+                      backgroundColor: 'rgba(139, 92, 246, 0.25)',
+                      border: '1px solid #8b5cf6',
+                      borderRadius: '6px',
+                      color: '#ffffff',
+                      fontSize: '10px',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      width: '100%'
+                    }}
+                  >
+                    💾 Save
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Captured Snaps Gallery on Laptop */}
         {savedPhotos.length > 0 && (
           <div style={{
             backgroundColor: '#0f0f14',
@@ -482,7 +532,7 @@ function DedicatedReceiver() {
             padding: '16px 20px'
           }}>
             <div style={{ fontSize: '14px', fontWeight: '800', color: '#ffffff', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span>📸</span> Snapped Photos Gallery ({savedPhotos.length})
+              <span>📸</span> Live Snapped Photos ({savedPhotos.length})
             </div>
             <div style={{ display: 'flex', gap: '12px', overflowX: 'auto', paddingBottom: '4px' }}>
               {savedPhotos.map((p, idx) => (
@@ -532,6 +582,12 @@ function SnapStudio() {
   const [recordingTime, setRecordingTime] = useState('00:00');
   const [availableCameras, setAvailableCameras] = useState([]);
 
+  // Album Photos & Permission State
+  const [albumPhotos, setAlbumPhotos] = useState([]);
+  const [showAlbumPermissionModal, setShowAlbumPermissionModal] = useState(false);
+  const [hasAlbumPermission, setHasAlbumPermission] = useState(false);
+  const fileInputRef = useRef(null);
+
   // Single Controlled WebRTC References
   const mediaCallRef = useRef(null);
   const canvasStreamRef = useRef(null);
@@ -539,7 +595,7 @@ function SnapStudio() {
   const reconnectTimeoutRef = useRef(null);
   const reconnectDelayRef = useRef(1000);
 
-  // Unique session ID for phone to avoid broker locks
+  // Unique session ID for phone
   const sessionIdRef = useRef(`snap-phone-${Date.now()}`);
 
   const videoRef = useRef(null);
@@ -575,7 +631,6 @@ function SnapStudio() {
     }
   };
 
-  // Initialize Modules & Outbound Link to Laptop
   useEffect(() => {
     console.log('[PHONE] Studio initializing');
     const cameraManager = new CameraManager();
@@ -602,7 +657,6 @@ function SnapStudio() {
       console.warn('[PHONE] BroadcastChannel warning:', e);
     }
 
-    // Initialize Phone PeerJS Instance
     initPhonePeer();
 
     const handleUnload = () => {
@@ -663,7 +717,7 @@ function SnapStudio() {
     });
   };
 
-  // Single Controlled 60 FPS WebRTC Stream Call Pipeline
+  // High-Frame-Rate 60/120 FPS WebRTC Stream
   const startRemoteStream = () => {
     if (!peerRef.current || peerRef.current.destroyed) return;
     if (mediaCallRef.current) return;
@@ -671,10 +725,9 @@ function SnapStudio() {
     if (!canvasRef.current || canvasRef.current.width === 0 || canvasRef.current.height === 0) return;
 
     connectionAttemptRef.current = true;
-    console.log('[PHONE] Starting single controlled 60 FPS remote stream...');
+    console.log('[PHONE] Starting 60/120 FPS remote stream...');
 
     if (!canvasStreamRef.current || canvasStreamRef.current.getVideoTracks().length === 0 || canvasStreamRef.current.getVideoTracks()[0].readyState === 'ended') {
-      console.log('[PHONE] Creating captureStream(60)');
       const stream = canvasRef.current.captureStream(60);
       canvasStreamRef.current = stream;
 
@@ -696,11 +749,11 @@ function SnapStudio() {
       dataConnRef.current = conn;
       conn.on('open', () => {
         notifyFilterChange(activeFilterRef.current);
+        if (albumPhotos.length > 0) {
+          conn.send({ type: 'ALBUM_SYNC', photos: albumPhotos });
+        }
       });
     }
-
-    // Create 60 FPS WebRTC Call to Laptop
-    console.log(`[PHONE] Creating 60 FPS WebRTC call to ${RECEIVER_PORTAL_ID}`);
 
     try {
       const call = peerRef.current.call(RECEIVER_PORTAL_ID, streamToCall);
@@ -856,6 +909,65 @@ function SnapStudio() {
     }
   };
 
+  // Media Library & Album Photos Handlers
+  const handleOpenAlbum = () => {
+    if (!hasAlbumPermission) {
+      setShowAlbumPermissionModal(true);
+    } else if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleGrantAlbumPermission = () => {
+    setHasAlbumPermission(true);
+    setShowAlbumPermissionModal(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleFilesSelected = (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    const readPromises = files.map((file) => {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          resolve({
+            name: file.name,
+            size: file.size,
+            url: ev.target.result
+          });
+        };
+        reader.readAsDataURL(file);
+      });
+    });
+
+    Promise.all(readPromises).then((loadedPhotos) => {
+      const updatedList = [...loadedPhotos, ...albumPhotos];
+      setAlbumPhotos(updatedList);
+
+      // Sync Album Photos with Laptop Receiver
+      const payload = {
+        type: 'ALBUM_SYNC',
+        photos: updatedList
+      };
+
+      if (broadcastChannelRef.current) {
+        broadcastChannelRef.current.postMessage(payload);
+      }
+
+      if (dataConnRef.current && dataConnRef.current.open) {
+        try {
+          dataConnRef.current.send(payload);
+        } catch (err) {
+          console.warn('Sync album error:', err);
+        }
+      }
+    });
+  };
+
   const toggleRecording = async () => {
     const recorder = recorderRef.current;
     if (!recorder || !canvasRef.current || cameraState !== 'active') return;
@@ -898,6 +1010,83 @@ function SnapStudio() {
       backgroundColor: '#060609',
       color: '#f8fafc'
     }}>
+      {/* Hidden Album File Input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        onChange={handleFilesSelected}
+        style={{ display: 'none' }}
+      />
+
+      {/* Album Access Permission Modal */}
+      {showAlbumPermissionModal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.85)',
+          backdropFilter: 'blur(12px)',
+          zIndex: 100,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '20px'
+        }}>
+          <div style={{
+            backgroundColor: '#13131c',
+            border: '1.5px solid #8b5cf6',
+            borderRadius: '24px',
+            padding: '24px',
+            maxWidth: '380px',
+            width: '100%',
+            textAlign: 'center',
+            boxShadow: '0 20px 50px rgba(0, 0, 0, 0.8)'
+          }}>
+            <div style={{ fontSize: '38px', marginBottom: '12px' }}>🖼️</div>
+            <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#ffffff' }}>
+              Allow Photo & Album Access?
+            </h3>
+            <p style={{ fontSize: '13px', color: '#94a3b8', marginTop: '8px', lineHeight: 1.5 }}>
+              Please give permission to access your photo library so you can select and stream all your album pictures to your laptop receiver in real time.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '20px' }}>
+              <button
+                onClick={handleGrantAlbumPermission}
+                style={{
+                  padding: '14px',
+                  backgroundColor: '#8b5cf6',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '14px',
+                  fontWeight: '800',
+                  fontSize: '14px',
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 15px rgba(139, 92, 246, 0.4)'
+                }}
+              >
+                ✅ Give Permission to Photos & Album
+              </button>
+              <button
+                onClick={() => setShowAlbumPermissionModal(false)}
+                style={{
+                  padding: '12px',
+                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                  color: '#94a3b8',
+                  border: 'none',
+                  borderRadius: '14px',
+                  fontWeight: '600',
+                  fontSize: '13px',
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Clean Mobile Header */}
       <header style={{
         padding: '12px 18px',
@@ -937,6 +1126,26 @@ function SnapStudio() {
 
         {/* Top Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button
+            onClick={handleOpenAlbum}
+            title="Access Album Photos"
+            style={{
+              padding: '6px 10px',
+              borderRadius: '999px',
+              backgroundColor: 'rgba(139, 92, 246, 0.18)',
+              border: '1px solid rgba(139, 92, 246, 0.35)',
+              color: '#c084fc',
+              fontSize: '11px',
+              fontWeight: '700',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}
+          >
+            <span>🖼️</span> Album ({albumPhotos.length})
+          </button>
+
           {isCameraActive && (
             <>
               {availableCameras.length > 1 && (
@@ -970,7 +1179,7 @@ function SnapStudio() {
                 padding: '4px 8px',
                 borderRadius: '999px'
               }}>
-                {fps} FPS
+                {fps || 60} FPS
               </span>
             </>
           )}

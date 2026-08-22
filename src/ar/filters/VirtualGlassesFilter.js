@@ -13,89 +13,72 @@ export class VirtualGlassesFilter extends ARFilter {
 
     if (!faceGeometry) return;
 
-    const { eyeMidpoint, eyeDistance, roll } = faceGeometry;
+    const { leftCenter, rightCenter, noseBridge, eyeDistance, roll, yaw } = faceGeometry;
 
-    // Glasses dimensions calculated from eye distance
-    const glassesWidth = eyeDistance * 2.3;
-    const glassesHeight = glassesWidth * 0.42;
-    const lensWidth = glassesWidth * 0.42;
-    const lensHeight = glassesHeight * 0.85;
-    const bridgeWidth = glassesWidth * 0.16;
+    // Glasses dimensions calculated with precision from pupil landmarks
+    const lensRadius = eyeDistance * 0.38;
+    const lensWidth = eyeDistance * 0.82;
+    const lensHeight = lensRadius * 1.55;
 
     ctx.save();
-    // Anchor to eye midpoint & rotate with head roll
-    ctx.translate(eyeMidpoint.x, eyeMidpoint.y);
+    // Anchor to exact noseBridge and rotate with roll
+    ctx.translate(noseBridge.x, noseBridge.y);
     ctx.rotate(roll);
 
-    // Drop shadow behind glasses
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
-    ctx.shadowBlur = 12;
+    // Drop shadow
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    ctx.shadowBlur = 14;
     ctx.shadowOffsetY = 6;
 
-    // Frame Outline (Glossy Dark Chrome)
-    const frameGrad = ctx.createLinearGradient(-glassesWidth / 2, -glassesHeight / 2, glassesWidth / 2, glassesHeight / 2);
-    frameGrad.addColorStop(0, '#18181b');
-    frameGrad.addColorStop(0.5, '#3f3f46');
-    frameGrad.addColorStop(1, '#09090b');
-
-    // Left Lens & Frame
-    const leftX = -(bridgeWidth / 2 + lensWidth);
-    const leftY = -lensHeight / 2;
+    // Frame Outline (Sleek Aviator Dark Chrome)
+    const leftOffsetX = -eyeDistance * 0.52;
+    const rightOffsetX = eyeDistance * 0.52;
 
     ctx.fillStyle = '#0f172a';
-    ctx.strokeStyle = '#e2e8f0';
-    ctx.lineWidth = Math.max(2.5, glassesWidth * 0.025);
+    ctx.strokeStyle = '#f8fafc';
+    ctx.lineWidth = Math.max(3, eyeDistance * 0.045);
 
     // Left Frame
     ctx.beginPath();
-    ctx.roundRect(leftX, leftY, lensWidth, lensHeight, [18, 18, 24, 24]);
+    ctx.roundRect(leftOffsetX - lensWidth / 2, -lensHeight * 0.45, lensWidth, lensHeight, [16, 16, 24, 24]);
     ctx.fill();
     ctx.stroke();
 
     // Right Frame
-    const rightX = bridgeWidth / 2;
-    const rightY = -lensHeight / 2;
-
     ctx.beginPath();
-    ctx.roundRect(rightX, rightY, lensWidth, lensHeight, [18, 18, 24, 24]);
+    ctx.roundRect(rightOffsetX - lensWidth / 2, -lensHeight * 0.45, lensWidth, lensHeight, [16, 16, 24, 24]);
     ctx.fill();
     ctx.stroke();
 
-    // Bridge
+    // Double Aviator Bridge
     ctx.beginPath();
-    ctx.moveTo(-bridgeWidth / 2, -lensHeight * 0.2);
-    ctx.quadraticCurveTo(0, -lensHeight * 0.45, bridgeWidth / 2, -lensHeight * 0.2);
+    ctx.moveTo(leftOffsetX + lensWidth / 2, -lensHeight * 0.25);
+    ctx.lineTo(rightOffsetX - lensWidth / 2, -lensHeight * 0.25);
+    ctx.moveTo(leftOffsetX + lensWidth * 0.4, -lensHeight * 0.42);
+    ctx.lineTo(rightOffsetX - lensWidth * 0.4, -lensHeight * 0.42);
     ctx.stroke();
 
-    // Side temples (arms)
-    ctx.beginPath();
-    ctx.moveTo(leftX, leftY + lensHeight * 0.2);
-    ctx.lineTo(leftX - glassesWidth * 0.15, leftY + lensHeight * 0.1);
-    ctx.moveTo(rightX + lensWidth, rightY + lensHeight * 0.2);
-    ctx.lineTo(rightX + lensWidth + glassesWidth * 0.15, rightY + lensHeight * 0.1);
-    ctx.stroke();
-
-    // Lens Gradient Tint (Sunset Amber / Cyan polarized)
+    // Polarized Gradient Tint (Sunset Amber / Cyan polarized)
     ctx.shadowBlur = 0;
     const lensTint = ctx.createLinearGradient(0, -lensHeight / 2, 0, lensHeight / 2);
-    lensTint.addColorStop(0, 'rgba(56, 189, 248, 0.45)');
-    lensTint.addColorStop(0.5, 'rgba(168, 85, 247, 0.4)');
-    lensTint.addColorStop(1, 'rgba(236, 72, 153, 0.35)');
+    lensTint.addColorStop(0, 'rgba(56, 189, 248, 0.6)');
+    lensTint.addColorStop(0.5, 'rgba(168, 85, 247, 0.55)');
+    lensTint.addColorStop(1, 'rgba(236, 72, 153, 0.5)');
 
     ctx.fillStyle = lensTint;
     ctx.beginPath();
-    ctx.roundRect(leftX + 2, leftY + 2, lensWidth - 4, lensHeight - 4, [16, 16, 22, 22]);
-    ctx.roundRect(rightX + 2, rightY + 2, lensWidth - 4, lensHeight - 4, [16, 16, 22, 22]);
+    ctx.roundRect(leftOffsetX - lensWidth / 2 + 3, -lensHeight * 0.45 + 3, lensWidth - 6, lensHeight - 6, [14, 14, 22, 22]);
+    ctx.roundRect(rightOffsetX - lensWidth / 2 + 3, -lensHeight * 0.45 + 3, lensWidth - 6, lensHeight - 6, [14, 14, 22, 22]);
     ctx.fill();
 
     // Specular Glare Reflection on Lenses
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
-    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
+    ctx.lineWidth = 3.5;
     ctx.beginPath();
-    ctx.moveTo(leftX + 12, leftY + 10);
-    ctx.lineTo(leftX + lensWidth * 0.45, leftY + lensHeight - 12);
-    ctx.moveTo(rightX + 12, rightY + 10);
-    ctx.lineTo(rightX + lensWidth * 0.45, rightY + lensHeight - 12);
+    ctx.moveTo(leftOffsetX - lensWidth * 0.3, -lensHeight * 0.3);
+    ctx.lineTo(leftOffsetX + lensWidth * 0.1, lensHeight * 0.35);
+    ctx.moveTo(rightOffsetX - lensWidth * 0.3, -lensHeight * 0.3);
+    ctx.lineTo(rightOffsetX + lensWidth * 0.1, lensHeight * 0.35);
     ctx.stroke();
 
     ctx.restore();
