@@ -1,8 +1,8 @@
 /**
- * AR Math Utilities & Temporal Smoothing
+ * AR Math Utilities, Anatomical Extractors & Temporal Smoothing
  */
 
-// Exponential Moving Average filter for smooth tracking without jitter
+// Exponential Moving Average filter with adaptive acceleration
 export class LandmarkSmoother {
   constructor(smoothingFactor = 0.5) {
     this.factor = smoothingFactor;
@@ -48,14 +48,13 @@ export class LandmarkSmoother {
 }
 
 /**
- * Calculate geometric metrics & pinpoint anatomical anchors from face landmarks
+ * Extract 468/478-point MediaPipe Face Landmark Geometry
  */
 export function extractFaceGeometry(landmarks, width, height) {
   if (!landmarks || landmarks.length < 468) {
     return null;
   }
 
-  // Helper to convert normalized coordinate to canvas pixels
   const pt = (index) => {
     const lm = landmarks[index] || { x: 0.5, y: 0.5, z: 0 };
     return {
@@ -65,32 +64,31 @@ export function extractFaceGeometry(landmarks, width, height) {
     };
   };
 
-  // Accurate Anatomical Landmark Indices (MediaPipe 468/478 FaceMesh)
-  const leftEye = pt(33);                 // Left outer corner
-  const leftInner = pt(133);              // Left inner corner
-  const leftCenter = pt(468) || pt(159);  // Left pupil / iris center
+  const leftEye = pt(33);
+  const leftInner = pt(133);
+  const leftCenter = pt(468) || pt(159);
 
-  const rightEye = pt(263);               // Right outer corner
-  const rightInner = pt(362);             // Right inner corner
-  const rightCenter = pt(473) || pt(386); // Right pupil / iris center
+  const rightEye = pt(263);
+  const rightInner = pt(362);
+  const rightCenter = pt(473) || pt(386);
 
-  const noseBridge = pt(168);             // Glabella / Mid eyes
-  const noseTip = pt(1);                  // Nose apex
-  const noseBottom = pt(2);               // Subnasale
+  const noseBridge = pt(168);
+  const noseTip = pt(1);
+  const noseBottom = pt(2);
   const leftNostril = pt(98);
   const rightNostril = pt(327);
 
-  const chin = pt(152);                   // Menton / Chin bottom
-  const forehead = pt(10);                // Forehead top apex
-  const leftForeheadTop = pt(103);        // Left upper forehead
-  const rightForeheadTop = pt(332);       // Right upper forehead
-  const leftEarTop = pt(127);             // Left upper ear / temple
-  const rightEarTop = pt(356);            // Right upper ear / temple
+  const chin = pt(152);
+  const forehead = pt(10);
+  const leftForeheadTop = pt(103);
+  const rightForeheadTop = pt(332);
+  const leftEarTop = pt(127);
+  const rightEarTop = pt(356);
 
-  const leftCheek = pt(234);              // Left zygomatic arch
-  const rightCheek = pt(454);             // Right zygomatic arch
-  const leftCheekCenter = pt(117);        // Left cheek apple
-  const rightCheekCenter = pt(346);       // Right cheek apple
+  const leftCheek = pt(234);
+  const rightCheek = pt(454);
+  const leftCheekCenter = pt(117);
+  const rightCheekCenter = pt(346);
 
   const upperLip = pt(13);
   const lowerLip = pt(14);
@@ -99,25 +97,31 @@ export function extractFaceGeometry(landmarks, width, height) {
   const mouthLeft = pt(61);
   const mouthRight = pt(291);
 
-  // Eye midpoint
   const eyeMidpoint = {
     x: (leftCenter.x + rightCenter.x) / 2,
     y: (leftCenter.y + rightCenter.y) / 2,
     z: (leftCenter.z + rightCenter.z) / 2
   };
 
-  // Inter-pupillary distance & Face dimensions
   const eyeDistance = Math.hypot(rightCenter.x - leftCenter.x, rightCenter.y - leftCenter.y);
   const faceWidth = Math.hypot(rightCheek.x - leftCheek.x, rightCheek.y - leftCheek.y);
   const faceHeight = Math.hypot(chin.x - forehead.x, chin.y - forehead.y);
   const mouthOpen = Math.hypot(lowerLip.x - upperLip.x, lowerLip.y - upperLip.y);
 
-  // Roll (tilt angle in radians)
+  // 2D In-plane Roll
   const roll = Math.atan2(rightCenter.y - leftCenter.y, rightCenter.x - leftCenter.x);
 
-  // Yaw & Pitch approximations
-  const yaw = (noseTip.x - eyeMidpoint.x) / (faceWidth * 0.5 || 1);
-  const pitch = (noseTip.y - eyeMidpoint.y) / (faceHeight * 0.5 || 1);
+  // 3D Depth-aware Yaw (Left-Right turning)
+  const dzCheek = (landmarks[454]?.z || 0) - (landmarks[234]?.z || 0);
+  const dxCheek = (landmarks[454]?.x || 0.5) - (landmarks[234]?.x || 0.5);
+  const rawYaw = Math.atan2(dzCheek, Math.max(0.001, dxCheek));
+  const yaw = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, rawYaw * 1.8));
+
+  // 3D Depth-aware Pitch (Up-Down tilting)
+  const dzNoseForehead = (landmarks[152]?.z || 0) - (landmarks[10]?.z || 0);
+  const dyNoseForehead = (landmarks[152]?.y || 0.5) - (landmarks[10]?.y || 0.5);
+  const rawPitch = Math.atan2(dzNoseForehead, Math.max(0.001, dyNoseForehead));
+  const pitch = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, rawPitch * 1.6));
 
   return {
     leftCenter,
@@ -155,6 +159,161 @@ export function extractFaceGeometry(landmarks, width, height) {
     roll,
     yaw,
     pitch,
+    rawLandmarks: landmarks,
+    pt
+  };
+}
+
+/**
+ * Extract 21-point MediaPipe Hand Landmark Geometry
+ */
+export function extractHandGeometry(landmarks, width, height) {
+  if (!landmarks || landmarks.length < 21) {
+    return null;
+  }
+
+  const pt = (index) => {
+    const lm = landmarks[index] || { x: 0.5, y: 0.5, z: 0 };
+    return {
+      x: lm.x * width,
+      y: lm.y * height,
+      z: (lm.z || 0) * width
+    };
+  };
+
+  const wrist = pt(0);
+  const thumbCmc = pt(1);
+  const thumbMcp = pt(2);
+  const thumbTip = pt(4);
+
+  const indexMcp = pt(5);
+  const indexTip = pt(8);
+
+  const middleMcp = pt(9);
+  const middleTip = pt(12);
+
+  const ringMcp = pt(13);
+  const pinkyMcp = pt(17);
+  const pinkyTip = pt(20);
+
+  // Palm Center & Forearm direction
+  const palmCenter = {
+    x: (wrist.x + middleMcp.x) * 0.5,
+    y: (wrist.y + middleMcp.y) * 0.5,
+    z: (wrist.z + middleMcp.z) * 0.5
+  };
+
+  const handSpan = Math.hypot(pinkyMcp.x - indexMcp.x, pinkyMcp.y - indexMcp.y);
+  const handLength = Math.hypot(middleMcp.x - wrist.x, middleMcp.y - wrist.y);
+
+  // Hand tilt angle (wrist to middle MCP vector)
+  const angle = Math.atan2(middleMcp.y - wrist.y, middleMcp.x - wrist.x) - Math.PI / 2;
+
+  // Hand yaw / pitch from 3D coords
+  const dz = (middleMcp.z - wrist.z) / (handLength || 1);
+  const pitch = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, Math.asin(Math.max(-1, Math.min(1, dz)))));
+
+  return {
+    wrist,
+    thumbTip,
+    indexMcp,
+    indexTip,
+    middleMcp,
+    middleTip,
+    ringMcp,
+    pinkyMcp,
+    pinkyTip,
+    palmCenter,
+    handSpan,
+    handLength,
+    angle,
+    pitch,
+    rawLandmarks: landmarks,
+    pt
+  };
+}
+
+/**
+ * Extract 33-point MediaPipe Pose Landmark Geometry (Torso / Hips / Thighs)
+ */
+export function extractPoseGeometry(landmarks, width, height) {
+  if (!landmarks || landmarks.length < 33) {
+    return null;
+  }
+
+  const pt = (index) => {
+    const lm = landmarks[index] || { x: 0.5, y: 0.5, z: 0, visibility: 0 };
+    return {
+      x: lm.x * width,
+      y: lm.y * height,
+      z: (lm.z || 0) * width,
+      visibility: lm.visibility !== undefined ? lm.visibility : 1
+    };
+  };
+
+  const leftShoulder = pt(11);
+  const rightShoulder = pt(12);
+  const leftElbow = pt(13);
+  const rightElbow = pt(14);
+  const leftWrist = pt(15);
+  const rightWrist = pt(16);
+
+  const leftHip = pt(23);
+  const rightHip = pt(24);
+  const leftKnee = pt(25);
+  const rightKnee = pt(26);
+  const leftAnkle = pt(27);
+  const rightAnkle = pt(28);
+
+  // Torso & Stomach Anchors
+  const shoulderMid = {
+    x: (leftShoulder.x + rightShoulder.x) * 0.5,
+    y: (leftShoulder.y + rightShoulder.y) * 0.5
+  };
+  const hipMid = {
+    x: (leftHip.x + rightHip.x) * 0.5,
+    y: (leftHip.y + rightHip.y) * 0.5
+  };
+
+  // Stomach / Navel center (60% down from shoulders to hips)
+  const stomachCenter = {
+    x: shoulderMid.x * 0.4 + hipMid.x * 0.6,
+    y: shoulderMid.y * 0.4 + hipMid.y * 0.6
+  };
+
+  const shoulderWidth = Math.hypot(rightShoulder.x - leftShoulder.x, rightShoulder.y - leftShoulder.y);
+  const torsoHeight = Math.hypot(hipMid.x - shoulderMid.x, hipMid.y - shoulderMid.y);
+
+  // Right & Left Thigh vectors (Hip to Knee)
+  const rightThigh = {
+    center: { x: (rightHip.x + rightKnee.x) * 0.5, y: (rightHip.y + rightKnee.y) * 0.5 },
+    length: Math.hypot(rightKnee.x - rightHip.x, rightKnee.y - rightHip.y),
+    angle: Math.atan2(rightKnee.y - rightHip.y, rightKnee.x - rightHip.x) - Math.PI / 2
+  };
+
+  const leftThigh = {
+    center: { x: (leftHip.x + leftKnee.x) * 0.5, y: (leftHip.y + leftKnee.y) * 0.5 },
+    length: Math.hypot(leftKnee.x - leftHip.x, leftKnee.y - leftHip.y),
+    angle: Math.atan2(leftKnee.y - leftHip.y, leftKnee.x - leftHip.x) - Math.PI / 2
+  };
+
+  const torsoRoll = Math.atan2(rightShoulder.y - leftShoulder.y, rightShoulder.x - leftShoulder.x);
+
+  return {
+    leftShoulder,
+    rightShoulder,
+    shoulderMid,
+    leftHip,
+    rightHip,
+    hipMid,
+    stomachCenter,
+    shoulderWidth,
+    torsoHeight,
+    torsoRoll,
+    rightThigh,
+    leftThigh,
+    leftKnee,
+    rightKnee,
     rawLandmarks: landmarks,
     pt
   };

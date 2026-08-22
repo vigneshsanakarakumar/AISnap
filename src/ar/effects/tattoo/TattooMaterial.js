@@ -1,17 +1,15 @@
 /**
- * TattooMaterial — Realistic Sub-surface Skin Blending & Ink Diffusion
+ * TattooMaterial — Realistic Sub-surface Skin Blending & Local Luminance Modulation
  */
 
 export class TattooMaterial {
   constructor() {
     this.textureCache = new Map();
-    this.offscreenCanvas = document.createElement('canvas');
-    this.offscreenCtx = this.offscreenCanvas.getContext('2d');
     this.sampleCanvas = document.createElement('canvas');
     this.sampleCtx = this.sampleCanvas.getContext('2d', { willReadFrequently: true });
     
     this.params = {
-      inkOpacity: 0.76,
+      inkOpacity: 0.74,
       inkDensity: 0.85,
       edgeFeather: 2.5,
       skinInfluence: 0.22,
@@ -30,9 +28,9 @@ export class TattooMaterial {
     canvas.height = size;
     const ctx = canvas.getContext('2d');
 
-    // Render clean vector artwork with charcoal ink tone
-    ctx.strokeStyle = design.primaryColor || '#111827';
-    ctx.fillStyle = design.primaryColor || '#111827';
+    // Charcoal dark ink tone (realistic tattoo ink is never pure #000000)
+    ctx.strokeStyle = design.primaryColor || '#12161f';
+    ctx.fillStyle = design.primaryColor || '#12161f';
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.shadowColor = 'rgba(15, 23, 42, 0.4)';
@@ -40,7 +38,7 @@ export class TattooMaterial {
 
     design.renderVectors(ctx, size);
 
-    // Apply micro-feathering on edges
+    // Apply micro-feathering on outer edges
     const featheredCanvas = document.createElement('canvas');
     featheredCanvas.width = size;
     featheredCanvas.height = size;
@@ -52,15 +50,15 @@ export class TattooMaterial {
     return featheredCanvas;
   }
 
-  // Sample local skin luminance from the video feed in the target bounding box
-  sampleSkinLuminance(video, bbox) {
+  // Sample local 8x8 skin luminance map from the video feed in the bounding box
+  sampleLocalSkinLuminance(video, bbox) {
     if (!video || video.readyState < 2 || bbox.w <= 0 || bbox.h <= 0) {
       return 0.5;
     }
 
     try {
-      const sw = 16;
-      const sh = 16;
+      const sw = 8;
+      const sh = 8;
       this.sampleCanvas.width = sw;
       this.sampleCanvas.height = sh;
 
@@ -96,13 +94,12 @@ export class TattooMaterial {
   }
 
   // Apply composite ink material to destination context
-  applyInkMaterial(ctx, skinLuminance = 0.5, userOpacity = 1.0) {
-    // Luminance modulation: Under bright light, ink reflects slight undertone; in shadows, ink deepens
-    const lumFactor = 0.85 + skinLuminance * 0.3;
+  applyInkMaterial(ctx, localLuminance = 0.5, userOpacity = 1.0) {
+    // Luminance modulation: Highlights illuminate ink; shadows naturally deepen ink
+    const lumFactor = 0.85 + localLuminance * 0.3;
     const finalAlpha = Math.min(1.0, this.params.inkOpacity * userOpacity * lumFactor);
 
     ctx.globalCompositeOperation = 'multiply';
     ctx.globalAlpha = finalAlpha;
-    ctx.filter = 'none';
   }
 }

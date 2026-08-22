@@ -1,18 +1,37 @@
 /**
- * FaceTracker — Real-Time Face Landmark Tracking with MediaPipe Tasks Vision
+ * FaceTracker — Multi-Modal Vision Engine (Face, Hand, Pose Tracking)
  */
 
-import { FilesetResolver, FaceLandmarker } from '@mediapipe/tasks-vision';
-import { LandmarkSmoother, extractFaceGeometry } from '../utils/math.js';
+import { FilesetResolver, FaceLandmarker, HandLandmarker, PoseLandmarker } from '@mediapipe/tasks-vision';
+import {
+  LandmarkSmoother,
+  extractFaceGeometry,
+  extractHandGeometry,
+  extractPoseGeometry
+} from '../utils/math.js';
 
 export class FaceTracker {
   constructor() {
+    this.visionTasks = null;
     this.faceLandmarker = null;
+    this.handLandmarker = null;
+    this.poseLandmarker = null;
+
     this.isInitializing = false;
     this.isReady = false;
-    this.smoother = new LandmarkSmoother(0.65);
-    this.lastVideoTime = -1;
-    this.lastResult = null;
+
+    this.faceSmoother = new LandmarkSmoother(0.5);
+    this.handSmoother = new LandmarkSmoother(0.5);
+    this.poseSmoother = new LandmarkSmoother(0.5);
+
+    this.lastFaceVideoTime = -1;
+    this.lastHandVideoTime = -1;
+    this.lastPoseVideoTime = -1;
+
+    this.lastFaceResult = null;
+    this.lastHandResult = null;
+    this.lastPoseResult = null;
+
     this.onStatusChange = null;
   }
 
@@ -26,6 +45,15 @@ export class FaceTracker {
     }
   }
 
+  async getVisionTasks() {
+    if (!this.visionTasks) {
+      this.visionTasks = await FilesetResolver.forVisionTasks(
+        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
+      );
+    }
+    return this.visionTasks;
+  }
+
   async initialize() {
     if (this.isReady) return true;
     if (this.isInitializing) return false;
@@ -34,11 +62,9 @@ export class FaceTracker {
     this.notify('loading');
 
     try {
-      // Load wasm binary from Google MediaPipe CDN
-      const vision = await FilesetResolver.forVisionTasks(
-        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
-      );
+      const vision = await this.getVisionTasks();
 
+      // Initialize primary Face Landmarker
       this.faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
         baseOptions: {
           modelAssetPath:
@@ -55,12 +81,9 @@ export class FaceTracker {
       this.notify('ready');
       return true;
     } catch (err) {
-      console.warn('FaceLandmarker GPU init failed, attempting CPU fallback:', err);
+      console.warn('FaceLandmarker GPU init fallback to CPU:', err);
       try {
-        const vision = await FilesetResolver.forVisionTasks(
-          'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
-        );
-
+        const vision = await this.getVisionTasks();
         this.faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
           baseOptions: {
             modelAssetPath:
@@ -86,42 +109,177 @@ export class FaceTracker {
     }
   }
 
+  // Lazy initialize Hand Landmarker when needed
+  async ensureHandLandmarker() {
+    if (this.handLandmarker) return this.handLandmarker;
+    try {
+      const vision = await this.getVisionTasks();
+      this.handLandmarker = await HandLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath:
+            'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+          delegate: 'GPU'
+        },
+        runningMode: 'VIDEO',
+        numHands: 1
+      });
+      return this.handLandmarker;
+    } catch (e) {
+      console.warn('HandLandmarker fallback to CPU:', e);
+      const vision = await this.getVisionTasks();
+      this.handLandmarker = await HandLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath:
+            'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+          delegate: 'CPU'
+        },
+        runningMode: 'VIDEO',
+        numHands: 1
+      });
+      return this.handLandmarker;
+    }
+  }
+
+  // Lazy initialize Pose Landmarker when needed
+  async ensurePoseLandmarker() {
+    if (this.poseLandmarker) return this.poseLandmarker;
+    try {
+      const vision = await this.getVisionTasks();
+      this.poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath:
+            'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+          delegate: 'GPU'
+        },
+        runningMode: 'VIDEO',
+        numPoses: 1
+      });
+      return this.poseLandmarker;
+    } catch (e) {
+      console.warn('PoseLandmarker fallback to CPU:', e);
+      const vision = await this.getVisionTasks();
+      this.poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath:
+            'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+          delegate: 'CPU'
+        },
+        runningMode: 'VIDEO',
+        numPoses: 1
+      });
+      return this.poseLandmarker;
+    }
+  }
+
   detectFace(videoElement, canvasWidth, canvasHeight, timestamp = performance.now()) {
     if (!this.isReady || !this.faceLandmarker || !videoElement || videoElement.readyState < 2) {
       return null;
     }
 
     try {
-      if (videoElement.currentTime !== this.lastVideoTime) {
-        this.lastVideoTime = videoElement.currentTime;
+      if (videoElement.currentTime !== this.lastFaceVideoTime) {
+        this.lastFaceVideoTime = videoElement.currentTime;
         const results = this.faceLandmarker.detectForVideo(videoElement, timestamp);
-        this.lastResult = results;
+        this.lastFaceResult = results;
       }
 
-      if (this.lastResult && this.lastResult.faceLandmarks && this.lastResult.faceLandmarks.length > 0) {
-        const rawLandmarks = this.lastResult.faceLandmarks[0];
-        const smoothedLandmarks = this.smoother.smooth(rawLandmarks);
+      if (this.lastFaceResult && this.lastFaceResult.faceLandmarks && this.lastFaceResult.faceLandmarks.length > 0) {
+        const rawLandmarks = this.lastFaceResult.faceLandmarks[0];
+        const smoothedLandmarks = this.faceSmoother.smooth(rawLandmarks);
         return extractFaceGeometry(smoothedLandmarks, canvasWidth, canvasHeight);
       } else {
-        this.smoother.reset();
+        this.faceSmoother.reset();
         return null;
       }
     } catch (err) {
-      console.warn('Face detection loop warning:', err);
       return null;
     }
   }
 
+  detectHand(videoElement, canvasWidth, canvasHeight, timestamp = performance.now()) {
+    if (!this.handLandmarker || !videoElement || videoElement.readyState < 2) {
+      this.ensureHandLandmarker().catch(() => {});
+      return null;
+    }
+
+    try {
+      if (videoElement.currentTime !== this.lastHandVideoTime) {
+        this.lastHandVideoTime = videoElement.currentTime;
+        this.lastHandResult = this.handLandmarker.detectForVideo(videoElement, timestamp);
+      }
+
+      if (this.lastHandResult && this.lastHandResult.landmarks && this.lastHandResult.landmarks.length > 0) {
+        const rawLandmarks = this.lastHandResult.landmarks[0];
+        const smoothedLandmarks = this.handSmoother.smooth(rawLandmarks);
+        return extractHandGeometry(smoothedLandmarks, canvasWidth, canvasHeight);
+      } else {
+        this.handSmoother.reset();
+        return null;
+      }
+    } catch (err) {
+      return null;
+    }
+  }
+
+  detectPose(videoElement, canvasWidth, canvasHeight, timestamp = performance.now()) {
+    if (!this.poseLandmarker || !videoElement || videoElement.readyState < 2) {
+      this.ensurePoseLandmarker().catch(() => {});
+      return null;
+    }
+
+    try {
+      if (videoElement.currentTime !== this.lastPoseVideoTime) {
+        this.lastPoseVideoTime = videoElement.currentTime;
+        this.lastPoseResult = this.poseLandmarker.detectForVideo(videoElement, timestamp);
+      }
+
+      if (this.lastPoseResult && this.lastPoseResult.landmarks && this.lastPoseResult.landmarks.length > 0) {
+        const rawLandmarks = this.lastPoseResult.landmarks[0];
+        const smoothedLandmarks = this.poseSmoother.smooth(rawLandmarks);
+        return extractPoseGeometry(smoothedLandmarks, canvasWidth, canvasHeight);
+      } else {
+        this.poseSmoother.reset();
+        return null;
+      }
+    } catch (err) {
+      return null;
+    }
+  }
+
+  detectAll(videoElement, canvasWidth, canvasHeight, timestamp = performance.now(), activeBodyMode = 'face') {
+    const faceGeometry = this.detectFace(videoElement, canvasWidth, canvasHeight, timestamp);
+    let handGeometry = null;
+    let poseGeometry = null;
+
+    if (activeBodyMode === 'hand') {
+      handGeometry = this.detectHand(videoElement, canvasWidth, canvasHeight, timestamp);
+    } else if (activeBodyMode === 'torso' || activeBodyMode === 'leg') {
+      poseGeometry = this.detectPose(videoElement, canvasWidth, canvasHeight, timestamp);
+    }
+
+    return {
+      faceGeometry,
+      handGeometry,
+      poseGeometry
+    };
+  }
+
   dispose() {
     if (this.faceLandmarker) {
-      try {
-        this.faceLandmarker.close();
-      } catch (e) {
-        console.warn('FaceLandmarker close error:', e);
-      }
+      try { this.faceLandmarker.close(); } catch (e) {}
       this.faceLandmarker = null;
     }
-    this.smoother.reset();
+    if (this.handLandmarker) {
+      try { this.handLandmarker.close(); } catch (e) {}
+      this.handLandmarker = null;
+    }
+    if (this.poseLandmarker) {
+      try { this.poseLandmarker.close(); } catch (e) {}
+      this.poseLandmarker = null;
+    }
+    this.faceSmoother.reset();
+    this.handSmoother.reset();
+    this.poseSmoother.reset();
     this.isReady = false;
     this.isInitializing = false;
     this.notify('disposed');

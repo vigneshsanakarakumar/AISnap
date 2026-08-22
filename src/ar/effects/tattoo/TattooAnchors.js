@@ -1,5 +1,6 @@
 /**
  * TattooAnchors — Landmark-based target position, scale, rotation & surface orientation
+ * Supports Face (468-point), Hand (21-point), and Pose (33-point) geometry
  */
 
 export class TattooAnchors {
@@ -18,13 +19,17 @@ export class TattooAnchors {
     this.hasValidTrack = false;
   }
 
-  computePose(placement, faceGeometry, width, height, manualOffsets = {}) {
+  computePose(placement, trackingResult, width, height, manualOffsets = {}) {
     const {
       manualOffsetX = 0,
       manualOffsetY = 0,
       manualScale = 1.0,
       manualRotation = 0
     } = manualOffsets;
+
+    const faceGeometry = trackingResult?.faceGeometry || (trackingResult?.leftCenter ? trackingResult : null);
+    const handGeometry = trackingResult?.handGeometry;
+    const poseGeometry = trackingResult?.poseGeometry;
 
     let targetX = width * 0.5;
     let targetY = height * 0.5;
@@ -35,64 +40,65 @@ export class TattooAnchors {
     let targetRoll = 0;
     let isTracked = false;
 
+    // 1. CHEEK / FACE PLACEMENT (Using 468-point Face Landmarker)
     if (placement === 'cheek' && faceGeometry) {
-      // Direct anatomical anchoring to Cheek / Temple / Zygomatic arch
-      const { rightCheekCenter, rightCheek, noseTip, faceWidth, roll, yaw, pitch } = faceGeometry;
+      const { rightCheekCenter, rightCheek, faceWidth, roll, yaw, pitch } = faceGeometry;
       
-      targetX = (rightCheekCenter.x + rightCheek.x) * 0.5;
-      targetY = rightCheekCenter.y;
+      targetX = (rightCheekCenter.x + rightCheek.x) * 0.5 + manualOffsetX;
+      targetY = rightCheekCenter.y + manualOffsetY;
       targetScale = (faceWidth / 220) * 0.55 * manualScale;
       targetRotation = roll + manualRotation;
       targetYaw = yaw;
       targetPitch = pitch;
       targetRoll = roll;
       isTracked = true;
-
-    } else if (placement === 'hand') {
-      // Hand / Forearm placement
-      targetX = width * 0.5 + manualOffsetX;
-      targetY = height * 0.52 + manualOffsetY;
-      targetScale = (Math.min(width, height) / 480) * 0.95 * manualScale;
-      targetRotation = manualRotation;
-      targetYaw = 0;
-      targetPitch = 0;
-      isTracked = true;
-
-    } else if (placement === 'stomach') {
-      // Stomach / Torso placement
-      targetX = width * 0.5 + manualOffsetX;
-      targetY = height * 0.58 + manualOffsetY;
-      targetScale = (Math.min(width, height) / 480) * 1.25 * manualScale;
-      targetRotation = manualRotation;
-      targetYaw = 0;
-      targetPitch = 0;
-      isTracked = true;
-
-    } else if (placement === 'thigh') {
-      // Thigh / Leg placement
-      targetX = width * 0.5 + manualOffsetX;
-      targetY = height * 0.55 + manualOffsetY;
-      targetScale = (Math.min(width, height) / 480) * 1.35 * manualScale;
-      targetRotation = manualRotation;
-      targetYaw = 0;
-      targetPitch = 0;
-      isTracked = true;
-
-    } else if (faceGeometry) {
-      // Default to face tracking anchor
-      const { eyeMidpoint, faceWidth, roll, yaw, pitch } = faceGeometry;
-      targetX = eyeMidpoint.x + manualOffsetX;
-      targetY = eyeMidpoint.y + faceWidth * 0.35 + manualOffsetY;
-      targetScale = (faceWidth / 200) * 0.7 * manualScale;
-      targetRotation = roll + manualRotation;
-      targetYaw = yaw;
-      targetPitch = pitch;
-      isTracked = true;
+    }
+    // 2. HAND / WRIST PLACEMENT (Using 21-point Hand Landmarker)
+    else if (placement === 'hand') {
+      if (handGeometry) {
+        const { palmCenter, handLength, handSpan, angle, pitch } = handGeometry;
+        targetX = palmCenter.x + manualOffsetX;
+        targetY = palmCenter.y + manualOffsetY;
+        targetScale = (handLength / 120) * 0.85 * manualScale;
+        targetRotation = angle + manualRotation;
+        targetYaw = 0;
+        targetPitch = pitch;
+        targetRoll = angle;
+        isTracked = true;
+      }
+    }
+    // 3. STOMACH / TORSO PLACEMENT (Using 33-point Pose Landmarker)
+    else if (placement === 'stomach') {
+      if (poseGeometry) {
+        const { stomachCenter, torsoHeight, shoulderWidth, torsoRoll } = poseGeometry;
+        targetX = stomachCenter.x + manualOffsetX;
+        targetY = stomachCenter.y + manualOffsetY;
+        targetScale = (torsoHeight / 240) * 0.9 * manualScale;
+        targetRotation = torsoRoll + manualRotation;
+        targetYaw = 0;
+        targetPitch = 0;
+        targetRoll = torsoRoll;
+        isTracked = true;
+      }
+    }
+    // 4. THIGH / LEG PLACEMENT (Using 33-point Pose Landmarker)
+    else if (placement === 'thigh') {
+      if (poseGeometry) {
+        const thigh = poseGeometry.rightThigh || poseGeometry.leftThigh;
+        targetX = thigh.center.x + manualOffsetX;
+        targetY = thigh.center.y + manualOffsetY;
+        targetScale = (thigh.length / 180) * 0.85 * manualScale;
+        targetRotation = thigh.angle + manualRotation;
+        targetYaw = 0;
+        targetPitch = 0;
+        targetRoll = thigh.angle;
+        isTracked = true;
+      }
     }
 
-    // Adaptive Exponential Smoothing (Fast movement = lower factor for zero lag; Slow = higher factor for jitter-free stability)
+    // Adaptive Exponential Smoothing
     const now = performance.now();
-    if (!this.hasValidTrack) {
+    if (!this.hasValidTrack && isTracked) {
       this.smoothedPose = {
         x: targetX,
         y: targetY,
@@ -101,15 +107,16 @@ export class TattooAnchors {
         yaw: targetYaw,
         pitch: targetPitch,
         roll: targetRoll,
-        confidence: isTracked ? 1.0 : 0.0
+        confidence: 1.0
       };
-      this.hasValidTrack = isTracked;
-    } else {
+      this.hasValidTrack = true;
+      this.lastValidTime = now;
+    } else if (isTracked) {
       const dx = targetX - this.smoothedPose.x;
       const dy = targetY - this.smoothedPose.y;
       const dist = Math.hypot(dx, dy);
 
-      // Adaptive factor: Quick snap on fast movement, ultra-smooth when stationary
+      // Adaptive factor: Fast tracking during quick movement, high stability when stationary
       const alpha = dist > 40 ? 0.85 : dist > 10 ? 0.55 : 0.28;
 
       this.smoothedPose.x += (targetX - this.smoothedPose.x) * alpha;
@@ -120,15 +127,16 @@ export class TattooAnchors {
       this.smoothedPose.pitch += (targetPitch - this.smoothedPose.pitch) * alpha;
       this.smoothedPose.roll += (targetRoll - this.smoothedPose.roll) * alpha;
 
-      if (isTracked) {
-        this.lastValidTime = now;
-        this.smoothedPose.confidence = Math.min(1.0, this.smoothedPose.confidence + 0.1);
-      } else {
-        // Smooth tracking loss decay over 300ms
-        const elapsed = now - this.lastValidTime;
-        if (elapsed > 400) {
-          this.smoothedPose.confidence = Math.max(0, this.smoothedPose.confidence - 0.05);
-        }
+      this.lastValidTime = now;
+      this.smoothedPose.confidence = Math.min(1.0, this.smoothedPose.confidence + 0.15);
+    } else {
+      // Smooth tracking loss decay over 350ms (no abrupt jump/glitch)
+      const elapsed = now - this.lastValidTime;
+      if (elapsed > 200) {
+        this.smoothedPose.confidence = Math.max(0, this.smoothedPose.confidence - 0.08);
+      }
+      if (this.smoothedPose.confidence <= 0.01) {
+        this.hasValidTrack = false;
       }
     }
 

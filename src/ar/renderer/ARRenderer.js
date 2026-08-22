@@ -64,17 +64,22 @@ export class ARRenderer {
       this.canvas.height = videoHeight;
     }
 
-    // 1. Detect Face Landmarks
-    let faceGeometry = null;
+    // 1. Detect Landmarks (Multi-Modal on Demand)
+    let trackingResult = null;
     if (this.tracker && this.tracker.isReady) {
-      faceGeometry = this.tracker.detectFace(this.video, videoWidth, videoHeight, timestamp);
+      if (this.activeFilter && this.activeFilter.id === 'ar_tattoo') {
+        const bodyPart = this.activeFilter.targetBodyPart || 'face';
+        trackingResult = this.tracker.detectAll(this.video, videoWidth, videoHeight, timestamp, bodyPart);
+      } else {
+        trackingResult = this.tracker.detectFace(this.video, videoWidth, videoHeight, timestamp);
+      }
     }
 
     // 2. Render Active AR Filter
     if (this.activeFilter && typeof this.activeFilter.render === 'function') {
       try {
-        this.activeFilter.update(null, faceGeometry, timestamp);
-        this.activeFilter.render(this.ctx, this.canvas, this.video, faceGeometry, timestamp);
+        this.activeFilter.update(null, trackingResult, timestamp);
+        this.activeFilter.render(this.ctx, this.canvas, this.video, trackingResult, timestamp);
       } catch (err) {
         console.warn('Filter render error:', err);
         this.ctx.drawImage(this.video, 0, 0, videoWidth, videoHeight);
@@ -92,7 +97,8 @@ export class ARRenderer {
       this.lastFpsUpdateTime = now;
 
       if (typeof this.onFpsUpdate === 'function') {
-        this.onFpsUpdate(this.fps, faceGeometry !== null);
+        const hasTrack = trackingResult && (trackingResult.faceGeometry || trackingResult.leftCenter || trackingResult.stomachCenter || trackingResult.wrist);
+        this.onFpsUpdate(this.fps, !!hasTrack);
       }
     }
 
@@ -113,10 +119,10 @@ export class ARRenderer {
 
   captureSnapshot() {
     if (!this.canvas) return null;
-    return this.canvas.toDataURL('image/png', 1.0);
+    return this.canvas.toDataURL('image/jpeg', 0.92);
   }
 
-  getCanvasStream(fps = 30) {
+  getCanvasStream(fps = 60) {
     if (!this.canvas || !this.canvas.captureStream) return null;
     return this.canvas.captureStream(fps);
   }

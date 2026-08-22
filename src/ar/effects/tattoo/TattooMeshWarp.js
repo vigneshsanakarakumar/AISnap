@@ -1,12 +1,17 @@
 /**
  * TattooMeshWarp — Triangle-based UV Mesh Warping & Surface Deformation
+ * 4x4 Vertices (3x3 Grid Cells = 18 Triangles) with Single-Pass Offscreen Buffer Compositing
  */
 
 export class TattooMeshWarp {
-  constructor(gridCols = 3, gridRows = 3) {
-    this.cols = gridCols;
-    this.rows = gridRows;
+  constructor(gridCols = 4, gridRows = 4) {
+    this.cols = gridCols; // 4 vertices
+    this.rows = gridRows; // 4 vertices
     this.triangles = this.buildTriangles(gridCols, gridRows);
+    
+    // Dedicated Offscreen Buffer to render all triangles cleanly before multiply compositing
+    this.warpCanvas = document.createElement('canvas');
+    this.warpCtx = this.warpCanvas.getContext('2d');
   }
 
   buildTriangles(cols, rows) {
@@ -37,8 +42,8 @@ export class TattooMeshWarp {
   }
 
   // Calculate deformed destination vertices on skin
-  computeDeformedVertices(pose, baseWidth, baseHeight) {
-    const { x, y, scale, rotation, yaw, pitch } = pose;
+  computeDeformedVertices(pose, baseWidth, baseHeight, originX, originY) {
+    const { scale, rotation, yaw, pitch } = pose;
     const w = baseWidth * scale;
     const h = baseHeight * scale;
 
@@ -46,9 +51,12 @@ export class TattooMeshWarp {
     const cosR = Math.cos(rotation);
     const sinR = Math.sin(rotation);
 
-    // Surface foreshortening factor based on head/body yaw
-    const yawSquish = Math.cos(Math.min(Math.PI / 2.2, Math.abs(yaw) * 1.35));
-    const pitchSquish = Math.cos(Math.min(Math.PI / 2.2, Math.abs(pitch) * 1.35));
+    // Clamped surface foreshortening factor based on yaw and pitch
+    const clampedYaw = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, yaw));
+    const clampedPitch = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, pitch));
+
+    const yawSquish = Math.max(0.4, Math.cos(clampedYaw));
+    const pitchSquish = Math.max(0.4, Math.cos(clampedPitch));
 
     for (let r = 0; r < this.rows; r++) {
       vertices[r] = [];
@@ -59,16 +67,16 @@ export class TattooMeshWarp {
         const u = c / (this.cols - 1);
         const nx = (u - 0.5) * w * yawSquish;
 
-        // Surface curvature displacement (simulates cylindrical anatomical surface)
-        const curveOffset = Math.sin(u * Math.PI) * (w * 0.08) * Math.sin(yaw);
+        // Surface anatomical curvature displacement
+        const curveOffset = Math.sin(u * Math.PI) * (w * 0.08) * Math.sin(clampedYaw);
 
-        // Rotate and translate to target skin coordinate
+        // Rotate and translate relative to local bounding box
         const rx = (nx + curveOffset) * cosR - ny * sinR;
         const ry = (nx + curveOffset) * sinR + ny * cosR;
 
         vertices[r][c] = {
-          x: x + rx,
-          y: y + ry
+          x: originX + rx,
+          y: originY + ry
         };
       }
     }
@@ -76,23 +84,38 @@ export class TattooMeshWarp {
     return vertices;
   }
 
-  // Render warped tattoo mesh onto target 2D canvas context
-  renderWarpedMesh(ctx, texture, pose, baseWidth = 180, baseHeight = 180) {
-    if (!texture || pose.confidence <= 0.01) return;
+  // Render warped tattoo mesh into single offscreen canvas layer (Prevents dark seam multiply artifacts)
+  renderWarpedLayer(texture, pose, baseWidth = 180, baseHeight = 180) {
+    if (!texture || pose.confidence <= 0.01) return null;
 
-    const vertices = this.computeDeformedVertices(pose, baseWidth, baseHeight);
+    const pad = 40;
+    const layerW = Math.ceil(baseWidth * pose.scale + pad * 2);
+    const layerH = Math.ceil(baseHeight * pose.scale + pad * 2);
+
+    if (this.warpCanvas.width !== layerW || this.warpCanvas.height !== layerH) {
+      this.warpCanvas.width = layerW;
+      this.warpCanvas.height = layerH;
+    } else {
+      this.warpCtx.clearRect(0, 0, layerW, layerH);
+    }
+
+    const localCenterX = layerW * 0.5;
+    const localCenterY = layerH * 0.5;
+
+    const vertices = this.computeDeformedVertices(pose, baseWidth, baseHeight, localCenterX, localCenterY);
     const texW = texture.width;
     const texH = texture.height;
+
+    // Draw all triangles in source-over mode into the single offscreen buffer
+    this.warpCtx.globalCompositeOperation = 'source-over';
 
     for (let i = 0; i < this.triangles.length; i++) {
       const tri = this.triangles[i];
 
-      // Destination points
       const p0 = vertices[tri[0].r][tri[0].c];
       const p1 = vertices[tri[1].r][tri[1].c];
       const p2 = vertices[tri[2].r][tri[2].c];
 
-      // Source texture coordinates
       const u0 = tri[0].u * texW;
       const v0 = tri[0].v * texH;
       const u1 = tri[1].u * texW;
@@ -100,15 +123,23 @@ export class TattooMeshWarp {
       const u2 = tri[2].u * texW;
       const v2 = tri[2].v * texH;
 
-      this.drawTriangleSlice(ctx, texture, p0, p1, p2, u0, v0, u1, v1, u2, v2);
+      this.drawTriangleSlice(this.warpCtx, texture, p0, p1, p2, u0, v0, u1, v1, u2, v2);
     }
+
+    return {
+      canvas: this.warpCanvas,
+      x: pose.x - localCenterX,
+      y: pose.y - localCenterY,
+      w: layerW,
+      h: layerH
+    };
   }
 
   // Draw an individual affine-transformed triangle slice
   drawTriangleSlice(ctx, img, p0, p1, p2, u0, v0, u1, v1, u2, v2) {
     ctx.save();
 
-    // 1. Clip to destination triangle with subtle seam feathering
+    // 1. Clip to destination triangle
     ctx.beginPath();
     ctx.moveTo(p0.x, p0.y);
     ctx.lineTo(p1.x, p1.y);
@@ -117,7 +148,6 @@ export class TattooMeshWarp {
     ctx.clip();
 
     // 2. Compute 2D Affine Transformation Matrix
-    // Solve: [x, y] = [u, v, 1] * Matrix
     const denom = u0 * (v1 - v2) - u1 * v0 + u2 * v0 + u1 * v2 - u2 * v1;
     if (Math.abs(denom) < 0.0001) {
       ctx.restore();
