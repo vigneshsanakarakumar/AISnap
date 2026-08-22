@@ -799,6 +799,7 @@ function SnapStudio() {
   const [albumPhotos, setAlbumPhotos] = useState([]);
   const [showAlbumPermissionModal, setShowAlbumPermissionModal] = useState(false);
   const [hasAlbumPermission, setHasAlbumPermission] = useState(false);
+  const [albumSyncStatus, setAlbumSyncStatus] = useState(null);
   const fileInputRef = useRef(null);
 
   // Single Controlled WebRTC References
@@ -1126,7 +1127,31 @@ function SnapStudio() {
   const handleOpenAlbum = () => {
     if (!hasAlbumPermission) {
       setShowAlbumPermissionModal(true);
-    } else if (fileInputRef.current) {
+    } else {
+      triggerMediaPicker();
+    }
+  };
+
+  const triggerMediaPicker = async () => {
+    // Try File System Access API if available
+    if (typeof window !== 'undefined' && 'showOpenFilePicker' in window) {
+      try {
+        const handles = await window.showOpenFilePicker({
+          multiple: true,
+          types: [{ description: 'Images', accept: { 'image/*': ['.png', '.jpg', '.jpeg', '.webp', '.gif'] } }]
+        });
+        const files = await Promise.all(handles.map((h) => h.getFile()));
+        processSelectedFiles(files);
+        return;
+      } catch (err) {
+        if (err.name !== 'AbortError' && fileInputRef.current) {
+          fileInputRef.current.click();
+        }
+        return;
+      }
+    }
+
+    if (fileInputRef.current) {
       fileInputRef.current.click();
     }
   };
@@ -1134,9 +1159,7 @@ function SnapStudio() {
   const handleAllowAlbumPermission = () => {
     setHasAlbumPermission(true);
     setShowAlbumPermissionModal(false);
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
-    }
+    triggerMediaPicker();
   };
 
   const handleDenyAlbumPermission = () => {
@@ -1144,11 +1167,10 @@ function SnapStudio() {
     setHasAlbumPermission(false);
   };
 
-  const handleFilesSelected = (e) => {
-    const files = Array.from(e.target.files || []);
-    if (files.length === 0) return;
+  const processSelectedFiles = (files) => {
+    if (!files || files.length === 0) return;
 
-    const readPromises = files.map((file) => {
+    const readPromises = Array.from(files).map((file) => {
       return new Promise((resolve) => {
         const reader = new FileReader();
         reader.onload = (ev) => {
@@ -1165,6 +1187,8 @@ function SnapStudio() {
     Promise.all(readPromises).then((loadedPhotos) => {
       const updatedList = [...loadedPhotos, ...albumPhotos];
       setAlbumPhotos(updatedList);
+      setAlbumSyncStatus(`✅ ${loadedPhotos.length} photos synced to Laptop!`);
+      setTimeout(() => setAlbumSyncStatus(null), 5000);
 
       // Instant Sync with Laptop Receiver
       const payload = {
@@ -1184,6 +1208,10 @@ function SnapStudio() {
         }
       }
     });
+  };
+
+  const handleFilesSelected = (e) => {
+    processSelectedFiles(e.target.files);
   };
 
   const toggleRecording = async () => {
@@ -1228,7 +1256,7 @@ function SnapStudio() {
       backgroundColor: '#060609',
       color: '#f8fafc'
     }}>
-      {/* Hidden Album File Input */}
+      {/* Hidden Multi-Photo Album Input */}
       <input
         ref={fileInputRef}
         type="file"
@@ -1277,7 +1305,7 @@ function SnapStudio() {
                 Access all photos and pictures in your album?
               </div>
               <div style={{ fontSize: '11px', color: '#cbd5e1', marginTop: '4px', lineHeight: 1.4 }}>
-                This allows you to view and download all your album photos directly on your laptop.
+                Grant permission to sync all your album photos to your laptop receiver screen.
               </div>
 
               {/* Exact 2 options: Allow & Deny */}
@@ -1316,6 +1344,26 @@ function SnapStudio() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Sync Status Banner */}
+      {albumSyncStatus && (
+        <div style={{
+          position: 'fixed',
+          top: '70px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          backgroundColor: '#166534',
+          color: '#ffffff',
+          padding: '8px 16px',
+          borderRadius: '999px',
+          fontSize: '12px',
+          fontWeight: '700',
+          zIndex: 90,
+          boxShadow: '0 4px 15px rgba(0, 0, 0, 0.5)'
+        }}>
+          {albumSyncStatus}
         </div>
       )}
 
