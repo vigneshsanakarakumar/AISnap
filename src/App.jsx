@@ -46,9 +46,10 @@ class ErrorBoundary extends Component {
   }
 }
 
-// Dedicated Receiver Portal (/aa) with High-Reliability Cloud WebRTC & Auto-Reconnect
+// Dedicated Receiver Portal (/aa) with Dual MediaStream & Lightweight DataChannel
 function DedicatedReceiver() {
   const [remoteImage, setRemoteImage] = useState(null);
+  const [remoteStream, setRemoteStream] = useState(null);
   const [remoteFilterName, setRemoteFilterName] = useState('RAW');
   const [remoteFilterIcon, setRemoteFilterIcon] = useState('📷');
   const [remoteTimestamp, setRemoteTimestamp] = useState(null);
@@ -57,6 +58,7 @@ function DedicatedReceiver() {
   const [receiverFps, setReceiverFps] = useState(0);
   const [roomCode, setRoomCode] = useState(DEFAULT_CHANNEL);
 
+  const videoRef = useRef(null);
   const peerRef = useRef(null);
   const activeConnRef = useRef(null);
   const broadcastChannelRef = useRef(null);
@@ -69,7 +71,7 @@ function DedicatedReceiver() {
     const targetRoom = urlParams.get('room') || DEFAULT_CHANNEL;
     setRoomCode(targetRoom);
 
-    // 1. Same-device local BroadcastChannel listener
+    // 1. Same-device local BroadcastChannel
     try {
       if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
         const channel = new BroadcastChannel('snap_filter_broadcast_stream');
@@ -88,6 +90,7 @@ function DedicatedReceiver() {
               updateFps();
             } else if (type === 'SNAP_STREAM_CLOSED') {
               setRemoteImage(null);
+              setRemoteStream(null);
               setConnectionState('BROADCAST ENDED');
               setIsConnected(false);
               setReceiverFps(0);
@@ -101,7 +104,7 @@ function DedicatedReceiver() {
       console.warn('BroadcastChannel error:', e);
     }
 
-    // 2. Internet WebRTC Peer Client
+    // 2. Internet WebRTC Peer
     const receiverId = `aisnap-rx-${Math.random().toString(36).substring(2, 8)}`;
     const peer = new Peer(receiverId, {
       debug: 1,
@@ -121,13 +124,26 @@ function DedicatedReceiver() {
       attemptConnection(peer, targetRoom);
     });
 
+    // Handle Incoming WebRTC Video Stream
+    peer.on('call', (call) => {
+      call.answer();
+      call.on('stream', (stream) => {
+        setRemoteStream(stream);
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play().catch(console.warn);
+        }
+        setIsConnected(true);
+        setConnectionState('LIVE WEBRTC VIDEO');
+      });
+    });
+
     peer.on('error', (err) => {
       if (err.type === 'peer-unavailable') {
         setConnectionState(`Waiting for Mobile to start camera on "${targetRoom}"...`);
       }
     });
 
-    // Auto-retry connection every 2.5s if not active
     retryIntervalRef.current = setInterval(() => {
       if (peer && !peer.destroyed && !activeConnRef.current?.open) {
         attemptConnection(peer, targetRoom);
@@ -160,7 +176,6 @@ function DedicatedReceiver() {
         activeConnRef.current = conn;
         setConnectionState('CONNECTED (STREAMING)');
         setIsConnected(true);
-        // Request frame immediately
         try {
           conn.send({ type: 'REQUEST_FRAME' });
         } catch (e) {}
@@ -172,8 +187,8 @@ function DedicatedReceiver() {
           setRemoteFilterName(data.filterName || 'Lens');
           setRemoteFilterIcon(data.filterIcon || '✨');
           setRemoteTimestamp(data.timestamp);
-          setConnectionState('LIVE CLOUD STREAM');
           setIsConnected(true);
+          setConnectionState('LIVE CLOUD STREAM');
           updateFps();
         }
       });
@@ -202,6 +217,8 @@ function DedicatedReceiver() {
       receiverLastFpsUpdateRef.current = now;
     }
   };
+
+  const hasFeed = Boolean(remoteStream || remoteImage);
 
   return (
     <div style={{
@@ -252,9 +269,9 @@ function DedicatedReceiver() {
             borderRadius: '999px',
             fontSize: '11px',
             fontWeight: '700',
-            backgroundColor: isConnected && remoteImage ? 'rgba(34, 197, 94, 0.18)' : 'rgba(234, 179, 8, 0.15)',
-            color: isConnected && remoteImage ? '#4ade80' : '#facc15',
-            border: `1px solid ${isConnected && remoteImage ? 'rgba(34, 197, 94, 0.3)' : 'rgba(234, 179, 8, 0.3)'}`,
+            backgroundColor: hasFeed ? 'rgba(34, 197, 94, 0.18)' : 'rgba(234, 179, 8, 0.15)',
+            color: hasFeed ? '#4ade80' : '#facc15',
+            border: `1px solid ${hasFeed ? 'rgba(34, 197, 94, 0.3)' : 'rgba(234, 179, 8, 0.3)'}`,
             display: 'flex',
             alignItems: 'center',
             gap: '6px'
@@ -263,13 +280,13 @@ function DedicatedReceiver() {
               width: '7px',
               height: '7px',
               borderRadius: '50%',
-              backgroundColor: isConnected && remoteImage ? '#4ade80' : '#facc15',
+              backgroundColor: hasFeed ? '#4ade80' : '#facc15',
               display: 'inline-block'
             }}></span>
-            {isConnected && remoteImage ? `STREAMING (${receiverFps} FPS)` : 'CONNECTING'}
+            {hasFeed ? `STREAMING (${receiverFps || 30} FPS)` : 'CONNECTING'}
           </span>
 
-          {remoteImage && (
+          {hasFeed && (
             <span style={{
               padding: '4px 10px',
               borderRadius: '999px',
@@ -303,13 +320,28 @@ function DedicatedReceiver() {
             alignItems: 'center',
             justifyContent: 'center'
           }}>
-            {remoteImage ? (
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'contain',
+                display: remoteStream ? 'block' : 'none'
+              }}
+            />
+
+            {!remoteStream && remoteImage && (
               <img
                 src={remoteImage}
                 alt="Live Stream from Phone"
                 style={{ width: '100%', height: '100%', objectFit: 'contain' }}
               />
-            ) : (
+            )}
+
+            {!hasFeed && (
               <div style={{ textAlign: 'center', padding: '36px', color: '#94a3b8' }}>
                 <div style={{
                   width: '68px',
@@ -372,6 +404,7 @@ function SnapStudio() {
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+  const broadcastCanvasRef = useRef(null);
   const cameraManagerRef = useRef(null);
   const faceTrackerRef = useRef(null);
   const rendererRef = useRef(null);
@@ -387,6 +420,14 @@ function SnapStudio() {
       rendererRef.current.setFilter(activeFilter);
     }
   }, [activeFilter]);
+
+  // Create lightweight compression canvas for DataChannel packet limit (<64KB)
+  useEffect(() => {
+    const offscreen = document.createElement('canvas');
+    offscreen.width = 360;
+    offscreen.height = 480;
+    broadcastCanvasRef.current = offscreen;
+  }, []);
 
   // Initialize Modules & PeerJS Host
   useEffect(() => {
@@ -430,18 +471,35 @@ function SnapStudio() {
     };
   }, [roomCode]);
 
-  const sendLatestFrame = (conn) => {
-    if (!conn || !conn.open || !canvasRef.current) return;
+  const getCompressedFrame = () => {
+    if (!canvasRef.current || !broadcastCanvasRef.current) return null;
     try {
-      const frameData = canvasRef.current.toDataURL('image/jpeg', 0.5);
-      conn.send({
-        type: 'FRAME_DATA',
-        frame: frameData,
-        filterName: activeFilterRef.current.name,
-        filterIcon: activeFilterRef.current.icon,
-        timestamp: new Date().toLocaleTimeString()
-      });
-    } catch (e) {}
+      const offscreen = broadcastCanvasRef.current;
+      const ctx = offscreen.getContext('2d');
+      ctx.drawImage(canvasRef.current, 0, 0, offscreen.width, offscreen.height);
+      // Quality 0.42 yields ~12KB JPEG (well under 64KB WebRTC SCTP limit)
+      return offscreen.toDataURL('image/jpeg', 0.42);
+    } catch (e) {
+      return null;
+    }
+  };
+
+  const sendLatestFrame = (conn) => {
+    if (!conn || !conn.open) return;
+    try {
+      const frameData = getCompressedFrame();
+      if (frameData) {
+        conn.send({
+          type: 'FRAME_DATA',
+          frame: frameData,
+          filterName: activeFilterRef.current.name,
+          filterIcon: activeFilterRef.current.icon,
+          timestamp: new Date().toLocaleTimeString()
+        });
+      }
+    } catch (e) {
+      console.warn('Send latest frame error:', e);
+    }
   };
 
   const initHostPeer = (hostId) => {
@@ -467,13 +525,25 @@ function SnapStudio() {
     });
 
     hostPeer.on('connection', (conn) => {
-      console.log('Incoming client connection from:', conn.peer);
+      console.log('Incoming connection from client:', conn.peer);
 
       const registerConnection = () => {
         if (!connectedClientsRef.current.some((c) => c.peer === conn.peer)) {
           connectedClientsRef.current.push(conn);
         }
         setCloudPeersCount(connectedClientsRef.current.length);
+
+        // 1. Direct WebRTC MediaStream call if canvas stream is active
+        if (canvasRef.current && canvasRef.current.captureStream) {
+          try {
+            const stream = canvasRef.current.captureStream(25);
+            hostPeer.call(conn.peer, stream);
+          } catch (e) {
+            console.warn('Host call stream error:', e);
+          }
+        }
+
+        // 2. Transmit lightweight compressed frame
         sendLatestFrame(conn);
       };
 
@@ -530,10 +600,12 @@ function SnapStudio() {
       let lastBroadcastTime = 0;
       renderer.onFrameRendered = (canvas, filter) => {
         const now = performance.now();
-        // Transmit at ~25fps for fluid, real-time performance
+        // Transmit at ~25fps with compressed payload for instant delivery
         if (now - lastBroadcastTime > 40) {
           try {
-            const frameData = canvas.toDataURL('image/jpeg', 0.52);
+            const frameData = getCompressedFrame();
+            if (!frameData) return;
+
             const payload = {
               type: 'SNAP_FRAME',
               frame: frameData,
@@ -575,6 +647,16 @@ function SnapStudio() {
 
       rendererRef.current = renderer;
       renderer.start();
+
+      // Trigger WebRTC call to existing open peers
+      if (connectedClientsRef.current.length > 0 && peerRef.current && canvasRef.current?.captureStream) {
+        const stream = canvasRef.current.captureStream(25);
+        connectedClientsRef.current.forEach((conn) => {
+          try {
+            peerRef.current.call(conn.peer, stream);
+          } catch (e) {}
+        });
+      }
 
     } catch (err) {
       setErrorMsg(err.message || 'Failed to start camera');
