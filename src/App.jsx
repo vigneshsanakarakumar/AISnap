@@ -1,4 +1,8 @@
 import React, { useState, useEffect, useRef, Component } from 'react';
+import Peer from 'peerjs';
+
+// Default global room ID for internet streaming
+const DEFAULT_ROOM_ID = 'aisnap-live-cloud-channel';
 
 // Error Boundary
 class ErrorBoundary extends Component {
@@ -48,23 +52,29 @@ const CUTE_LENSES = [
   { id: 'raw', name: 'Original', icon: '📷', theme: '#64748b', css: 'none', overlay: null }
 ];
 
-// Receiver Component for dedicated '/aa' route
+// Dedicated Receiver Portal (/aa) with Internet Cloud WebRTC Support
 function DedicatedReceiver() {
   const [remoteImage, setRemoteImage] = useState(null);
+  const [remoteStream, setRemoteStream] = useState(null);
   const [remoteFilterName, setRemoteFilterName] = useState('RAW');
   const [remoteFilterIcon, setRemoteFilterIcon] = useState('📷');
   const [remoteTimestamp, setRemoteTimestamp] = useState(null);
-  const [receiverStatus, setReceiverStatus] = useState('Awaiting Live Broadcast...');
+  const [connectionState, setConnectionState] = useState('Connecting to Cloud Server...');
   const [receiverFps, setReceiverFps] = useState(0);
 
+  const videoRef = useRef(null);
+  const peerRef = useRef(null);
+  const broadcastChannelRef = useRef(null);
   const receiverFrameCountRef = useRef(0);
   const receiverLastFpsUpdateRef = useRef(Date.now());
+  const connectTimeoutRef = useRef(null);
 
   useEffect(() => {
-    let channel = null;
+    // 1. Setup Local BroadcastChannel (for same-device tabs)
     try {
       if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-        channel = new BroadcastChannel('snap_filter_broadcast_stream');
+        const channel = new BroadcastChannel('snap_filter_broadcast_stream');
+        broadcastChannelRef.current = channel;
 
         channel.onmessage = (event) => {
           try {
@@ -74,37 +84,123 @@ function DedicatedReceiver() {
               setRemoteFilterName(filterName || 'Filter');
               setRemoteFilterIcon(filterIcon || '✨');
               setRemoteTimestamp(timestamp || new Date().toLocaleTimeString());
-              setReceiverStatus('CONNECTED');
+              setConnectionState('CONNECTED (LOCAL LINK)');
 
-              receiverFrameCountRef.current += 1;
-              const now = Date.now();
-              if (now - receiverLastFpsUpdateRef.current >= 1000) {
-                setReceiverFps(receiverFrameCountRef.current);
-                receiverFrameCountRef.current = 0;
-                receiverLastFpsUpdateRef.current = now;
-              }
+              updateFps();
             } else if (type === 'SNAP_STREAM_CLOSED') {
               setRemoteImage(null);
-              setReceiverStatus('BROADCAST ENDED');
+              setConnectionState('BROADCAST ENDED');
               setReceiverFps(0);
             }
           } catch (e) {
-            console.error('Channel error:', e);
+            console.error('Local channel error:', e);
           }
         };
       }
-    } catch (err) {
-      console.warn('BroadcastChannel error:', err);
+    } catch (e) {
+      console.warn('BroadcastChannel fallback:', e);
     }
 
+    // 2. Setup WebRTC PeerJS for Cross-Device Internet Streaming
+    const receiverPeerId = `aisnap-rx-${Math.random().toString(36).substring(2, 7)}`;
+    const peer = new Peer(receiverPeerId, {
+      debug: 1,
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:global.stun.twilio.com:3478' }
+        ]
+      }
+    });
+
+    peerRef.current = peer;
+
+    peer.on('open', (id) => {
+      setConnectionState('Cloud Signaling Connected. Searching for Studio...');
+      connectToStudio(peer);
+    });
+
+    // Handle incoming calls or data from Studio
+    peer.on('call', (call) => {
+      call.answer(); // Answer with no local stream
+      call.on('stream', (stream) => {
+        setRemoteStream(stream);
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play().catch((e) => console.warn('Stream play error:', e));
+        }
+        setConnectionState('CONNECTED (INTERNET WEBRTC)');
+      });
+    });
+
+    peer.on('connection', (conn) => {
+      conn.on('data', (data) => {
+        if (data && data.type === 'FRAME_DATA') {
+          setRemoteImage(data.frame);
+          setRemoteFilterName(data.filterName || 'Lens');
+          setRemoteFilterIcon(data.filterIcon || '✨');
+          setRemoteTimestamp(data.timestamp);
+          setConnectionState('CONNECTED (INTERNET CLOUD)');
+          updateFps();
+        }
+      });
+    });
+
+    peer.on('error', (err) => {
+      console.warn('Peer error:', err);
+      if (err.type === 'peer-unavailable') {
+        setConnectionState('Studio Offline. Waiting for host to broadcast...');
+        // Retry connection every 4 seconds
+        connectTimeoutRef.current = setTimeout(() => connectToStudio(peer), 4000);
+      }
+    });
+
     return () => {
-      if (channel) {
-        try {
-          channel.close();
-        } catch (e) {}
+      if (broadcastChannelRef.current) {
+        try { broadcastChannelRef.current.close(); } catch (e) {}
+      }
+      if (peer) {
+        try { peer.destroy(); } catch (e) {}
+      }
+      if (connectTimeoutRef.current) {
+        clearTimeout(connectTimeoutRef.current);
       }
     };
   }, []);
+
+  const connectToStudio = (peer) => {
+    if (!peer || peer.destroyed) return;
+    try {
+      const conn = peer.connect(DEFAULT_ROOM_ID, { reliable: false });
+      conn.on('open', () => {
+        setConnectionState('CONNECTED (INTERNET CLOUD)');
+      });
+      conn.on('data', (data) => {
+        if (data && data.type === 'FRAME_DATA') {
+          setRemoteImage(data.frame);
+          setRemoteFilterName(data.filterName || 'Lens');
+          setRemoteFilterIcon(data.filterIcon || '✨');
+          setRemoteTimestamp(data.timestamp);
+          setConnectionState('CONNECTED (INTERNET CLOUD)');
+          updateFps();
+        }
+      });
+    } catch (e) {
+      console.warn('Connect to studio error:', e);
+    }
+  };
+
+  const updateFps = () => {
+    receiverFrameCountRef.current += 1;
+    const now = Date.now();
+    if (now - receiverLastFpsUpdateRef.current >= 1000) {
+      setReceiverFps(receiverFrameCountRef.current);
+      receiverFrameCountRef.current = 0;
+      receiverLastFpsUpdateRef.current = now;
+    }
+  };
+
+  const isLive = Boolean(remoteImage || remoteStream);
 
   return (
     <div style={{
@@ -114,7 +210,7 @@ function DedicatedReceiver() {
       backgroundColor: '#060609',
       color: '#f8fafc'
     }}>
-      {/* Sleek Top Header */}
+      {/* Top Header */}
       <header style={{
         padding: '16px 20px',
         backgroundColor: 'rgba(15, 15, 20, 0.85)',
@@ -129,14 +225,14 @@ function DedicatedReceiver() {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <div style={{
-            width: '32px',
-            height: '32px',
+            width: '34px',
+            height: '34px',
             borderRadius: '8px',
             background: 'linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: '15px'
+            fontSize: '16px'
           }}>
             📡
           </div>
@@ -145,7 +241,7 @@ function DedicatedReceiver() {
               Live Receiver Portal
             </h1>
             <p style={{ fontSize: '11px', color: '#94a3b8', fontFamily: 'monospace' }}>
-              PORTAL // /aa
+              INTERNET CLOUD WEBRTC // /aa
             </p>
           </div>
         </div>
@@ -156,13 +252,13 @@ function DedicatedReceiver() {
             borderRadius: '999px',
             fontSize: '11px',
             fontWeight: '700',
-            backgroundColor: remoteImage ? 'rgba(34, 197, 94, 0.15)' : 'rgba(255, 255, 255, 0.06)',
-            color: remoteImage ? '#4ade80' : '#94a3b8',
+            backgroundColor: isLive ? 'rgba(34, 197, 94, 0.15)' : 'rgba(255, 255, 255, 0.06)',
+            color: isLive ? '#4ade80' : '#94a3b8',
             border: '1px solid rgba(255, 255, 255, 0.1)'
           }}>
-            {remoteImage ? `LIVE ${receiverFps} FPS` : 'STANDBY'}
+            {isLive ? `LIVE ${receiverFps} FPS` : 'WAITING'}
           </span>
-          {remoteImage && (
+          {isLive && (
             <span style={{
               padding: '4px 10px',
               borderRadius: '999px',
@@ -178,7 +274,7 @@ function DedicatedReceiver() {
         </div>
       </header>
 
-      {/* Main Receiver Content */}
+      {/* Main Viewport */}
       <main style={{ flex: 1, padding: '16px', maxWidth: '720px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
         <div style={{
           backgroundColor: '#0f0f14',
@@ -197,20 +293,37 @@ function DedicatedReceiver() {
             alignItems: 'center',
             justifyContent: 'center'
           }}>
-            {remoteImage ? (
+            {/* Direct WebRTC Video stream */}
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'contain',
+                display: remoteStream ? 'block' : 'none'
+              }}
+            />
+
+            {/* Canvas/DataChannel Frame Stream */}
+            {!remoteStream && remoteImage && (
               <img
                 src={remoteImage}
                 alt="Live Broadcast"
                 style={{ width: '100%', height: '100%', objectFit: 'contain' }}
               />
-            ) : (
+            )}
+
+            {!isLive && (
               <div style={{ textAlign: 'center', padding: '32px', color: '#94a3b8' }}>
                 <div style={{
                   width: '64px',
                   height: '64px',
                   borderRadius: '50%',
                   background: 'linear-gradient(135deg, rgba(236, 72, 153, 0.1), rgba(139, 92, 246, 0.1))',
-                  border: '1px dashed rgba(255, 255, 255, 0.2)',
+                  border: '1.5px dashed rgba(255, 255, 255, 0.2)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -220,10 +333,10 @@ function DedicatedReceiver() {
                   ✨
                 </div>
                 <div style={{ fontSize: '16px', fontWeight: '800', color: '#ffffff' }}>
-                  {receiverStatus}
+                  {connectionState}
                 </div>
-                <p style={{ fontSize: '12px', color: '#64748b', marginTop: '6px', maxWidth: '280px', margin: '6px auto 0 auto' }}>
-                  Waiting for host to start camera & broadcast in the main studio
+                <p style={{ fontSize: '12px', color: '#64748b', marginTop: '6px', maxWidth: '300px', margin: '6px auto 0 auto' }}>
+                  Open the main app on your phone, start camera, and tap <strong>"Start Broadcast"</strong>.
                 </p>
               </div>
             )}
@@ -231,7 +344,7 @@ function DedicatedReceiver() {
 
           {remoteTimestamp && (
             <div style={{ padding: '12px 18px', fontSize: '11px', color: '#64748b', textAlign: 'right', borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>
-              SYNCED AT: <span style={{ color: '#cbd5e1' }}>{remoteTimestamp}</span>
+              CLOUD PACKET RX: <span style={{ color: '#cbd5e1' }}>{remoteTimestamp}</span>
             </div>
           )}
         </div>
@@ -240,41 +353,88 @@ function DedicatedReceiver() {
   );
 }
 
-// Main Cute SnapAI Studio
+// Main Cute SnapStudio with Internet WebRTC Host
 function SnapStudio() {
   const [stream, setStream] = useState(null);
   const [activeFilter, setActiveFilter] = useState(CUTE_LENSES[0]);
   const [isBroadcasting, setIsBroadcasting] = useState(false);
   const [fps, setFps] = useState(0);
   const [errorMsg, setErrorMsg] = useState(null);
-  const [facingMode, setFacingMode] = useState('user'); // 'user' (front) | 'environment' (back)
+  const [facingMode, setFacingMode] = useState('user');
   const [snapshotEffect, setSnapshotEffect] = useState(false);
+  const [cloudPeersCount, setCloudPeersCount] = useState(0);
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const broadcastChannelRef = useRef(null);
+  const peerRef = useRef(null);
+  const connectedClientsRef = useRef([]);
   const animationFrameRef = useRef(null);
   const lastFrameTimeRef = useRef(Date.now());
   const frameCountRef = useRef(0);
   const lastFpsUpdateRef = useRef(Date.now());
 
   useEffect(() => {
-    let channel = null;
+    // 1. Setup Local BroadcastChannel (for same-device tabs)
     try {
       if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-        channel = new BroadcastChannel('snap_filter_broadcast_stream');
-        broadcastChannelRef.current = channel;
+        broadcastChannelRef.current = new BroadcastChannel('snap_filter_broadcast_stream');
       }
-    } catch (err) {
-      console.warn('BroadcastChannel init error:', err);
+    } catch (e) {
+      console.warn('BroadcastChannel error:', e);
     }
 
+    // 2. Setup PeerJS Cloud Host for Cross-Device Internet Streaming
+    const hostPeer = new Peer(DEFAULT_ROOM_ID, {
+      debug: 1,
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:global.stun.twilio.com:3478' }
+        ]
+      }
+    });
+
+    peerRef.current = hostPeer;
+
+    hostPeer.on('open', (id) => {
+      console.log('PeerJS Host Ready on Cloud:', id);
+    });
+
+    // Accept incoming DataChannel connections from receivers anywhere in the world
+    hostPeer.on('connection', (conn) => {
+      console.log('Receiver connected from internet:', conn.peer);
+      connectedClientsRef.current.push(conn);
+      setCloudPeersCount(connectedClientsRef.current.length);
+
+      conn.on('close', () => {
+        connectedClientsRef.current = connectedClientsRef.current.filter((c) => c !== conn);
+        setCloudPeersCount(connectedClientsRef.current.length);
+      });
+      conn.on('error', () => {
+        connectedClientsRef.current = connectedClientsRef.current.filter((c) => c !== conn);
+        setCloudPeersCount(connectedClientsRef.current.length);
+      });
+    });
+
+    // Accept incoming WebRTC MediaCalls
+    hostPeer.on('call', (call) => {
+      if (canvasRef.current && canvasRef.current.captureStream) {
+        const canvasStream = canvasRef.current.captureStream(25);
+        call.answer(canvasStream);
+      }
+    });
+
+    hostPeer.on('error', (err) => {
+      console.warn('Host peer error (may be re-attaching):', err);
+    });
+
     return () => {
-      if (channel) {
-        try {
-          channel.close();
-        } catch (e) {}
-        broadcastChannelRef.current = null;
+      if (broadcastChannelRef.current) {
+        try { broadcastChannelRef.current.close(); } catch (e) {}
+      }
+      if (hostPeer) {
+        try { hostPeer.destroy(); } catch (e) {}
       }
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
@@ -282,7 +442,6 @@ function SnapStudio() {
     };
   }, []);
 
-  // Request user camera
   const startCamera = async (facing = facingMode) => {
     setErrorMsg(null);
     try {
@@ -322,9 +481,7 @@ function SnapStudio() {
   const stopCamera = () => {
     if (stream) {
       stream.getTracks().forEach((track) => {
-        try {
-          track.stop();
-        } catch (e) {}
+        try { track.stop(); } catch (e) {}
       });
     }
     if (animationFrameRef.current) {
@@ -342,7 +499,6 @@ function SnapStudio() {
     setFps(0);
   };
 
-  // Capture snapshot image
   const capturePhoto = () => {
     if (canvasRef.current && stream) {
       setSnapshotEffect(true);
@@ -377,7 +533,7 @@ function SnapStudio() {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         ctx.restore();
 
-        // Draw Beautiful AR Lens Overlays
+        // Draw Cute Lenses
         drawCuteLensOverlay(ctx, canvas.width, canvas.height, activeFilter.overlay);
 
         frameCountRef.current += 1;
@@ -388,17 +544,41 @@ function SnapStudio() {
           lastFpsUpdateRef.current = now;
         }
 
-        if (isBroadcasting && broadcastChannelRef.current) {
+        // Broadcast frames to both Local Tabs and Internet WebRTC Peers
+        if (isBroadcasting) {
           if (now - lastFrameTimeRef.current > 45) {
             try {
-              const frameData = canvas.toDataURL('image/jpeg', 0.6);
-              broadcastChannelRef.current.postMessage({
+              const frameData = canvas.toDataURL('image/jpeg', 0.55);
+              const payload = {
                 type: 'SNAP_FRAME',
-                data: frameData,
+                frame: frameData,
                 filterName: activeFilter.name,
                 filterIcon: activeFilter.icon,
                 timestamp: new Date().toLocaleTimeString()
-              });
+              };
+
+              // 1. Local BroadcastChannel
+              if (broadcastChannelRef.current) {
+                broadcastChannelRef.current.postMessage(payload);
+              }
+
+              // 2. Internet PeerJS DataChannels
+              if (connectedClientsRef.current.length > 0) {
+                connectedClientsRef.current.forEach((conn) => {
+                  if (conn.open) {
+                    try {
+                      conn.send({
+                        type: 'FRAME_DATA',
+                        frame: frameData,
+                        filterName: activeFilter.name,
+                        filterIcon: activeFilter.icon,
+                        timestamp: payload.timestamp
+                      });
+                    } catch (e) {}
+                  }
+                });
+              }
+
               lastFrameTimeRef.current = now;
             } catch (e) {
               console.warn('Broadcast frame error:', e);
@@ -421,7 +601,6 @@ function SnapStudio() {
     }
   };
 
-  // Draw Cute & Beautiful AR Lenses
   const drawCuteLensOverlay = (ctx, width, height, overlayType) => {
     const cx = width / 2;
     const cy = height / 2;
@@ -429,7 +608,6 @@ function SnapStudio() {
 
     if (overlayType === 'dog') {
       ctx.save();
-      // Fluffy Dog Ears
       ctx.fillStyle = '#b45309';
       ctx.beginPath();
       ctx.ellipse(cx - (width * 0.22), cy - (height * 0.28), width * 0.07, height * 0.16, -0.38, 0, Math.PI * 2);
@@ -448,19 +626,16 @@ function SnapStudio() {
       ctx.ellipse(cx + (width * 0.22), cy - (height * 0.27), width * 0.04, height * 0.11, 0.38, 0, Math.PI * 2);
       ctx.fill();
 
-      // Dog Button Nose
       ctx.fillStyle = '#18181b';
       ctx.beginPath();
       drawRoundRect(ctx, cx - 28, cy - 12, 56, 38, 16);
       ctx.fill();
 
-      // Nose highlight
       ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
       ctx.beginPath();
       ctx.arc(cx - 10, cy - 2, 6, 0, Math.PI * 2);
       ctx.fill();
 
-      // Cute Tongue
       ctx.fillStyle = '#f43f5e';
       ctx.beginPath();
       drawRoundRect(ctx, cx - 18, cy + 30, 36, 46, 18);
@@ -475,12 +650,10 @@ function SnapStudio() {
       ctx.restore();
     } else if (overlayType === 'cat') {
       ctx.save();
-      // Kitty Pointy Ears
       ctx.fillStyle = '#1e1b4b';
       ctx.strokeStyle = '#f472b6';
       ctx.lineWidth = 3.5;
 
-      // Left Ear
       ctx.beginPath();
       ctx.moveTo(cx - (width * 0.22), cy - (height * 0.16));
       ctx.lineTo(cx - (width * 0.16), cy - (height * 0.36));
@@ -497,7 +670,6 @@ function SnapStudio() {
       ctx.closePath();
       ctx.fill();
 
-      // Right Ear
       ctx.fillStyle = '#1e1b4b';
       ctx.beginPath();
       ctx.moveTo(cx + (width * 0.22), cy - (height * 0.16));
@@ -515,7 +687,6 @@ function SnapStudio() {
       ctx.closePath();
       ctx.fill();
 
-      // Pink Nose
       ctx.fillStyle = '#f472b6';
       ctx.beginPath();
       ctx.moveTo(cx - 16, cy - 10);
@@ -524,7 +695,6 @@ function SnapStudio() {
       ctx.closePath();
       ctx.fill();
 
-      // Whiskers
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 3;
       ctx.lineCap = 'round';
@@ -549,12 +719,10 @@ function SnapStudio() {
       ctx.restore();
     } else if (overlayType === 'bunny') {
       ctx.save();
-      // Tall Bunny Ears
       ctx.fillStyle = '#ffffff';
       ctx.strokeStyle = '#f472b6';
       ctx.lineWidth = 3;
 
-      // Left Bunny Ear
       ctx.beginPath();
       ctx.ellipse(cx - (width * 0.14), cy - (height * 0.34), width * 0.06, height * 0.2, -0.15, 0, Math.PI * 2);
       ctx.fill();
@@ -564,7 +732,6 @@ function SnapStudio() {
       ctx.ellipse(cx - (width * 0.14), cy - (height * 0.33), width * 0.035, height * 0.14, -0.15, 0, Math.PI * 2);
       ctx.fill();
 
-      // Right Bunny Ear
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();
       ctx.ellipse(cx + (width * 0.14), cy - (height * 0.34), width * 0.06, height * 0.2, 0.15, 0, Math.PI * 2);
@@ -575,13 +742,11 @@ function SnapStudio() {
       ctx.ellipse(cx + (width * 0.14), cy - (height * 0.33), width * 0.035, height * 0.14, 0.15, 0, Math.PI * 2);
       ctx.fill();
 
-      // Cute Twitchy Pink Nose
       ctx.fillStyle = '#fb7185';
       ctx.beginPath();
       ctx.ellipse(cx, cy + 4, 14, 10, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Bunny Cheek Blush
       ctx.fillStyle = 'rgba(251, 113, 133, 0.35)';
       ctx.beginPath();
       ctx.ellipse(cx - 75, cy + 20, 24, 14, 0, 0, Math.PI * 2);
@@ -591,14 +756,12 @@ function SnapStudio() {
       ctx.restore();
     } else if (overlayType === 'sakura') {
       ctx.save();
-      // Floating Sakura Blossom Crown
       const crownY = cy - (height * 0.3) + Math.sin(time) * 6;
 
       for (let i = -3; i <= 3; i++) {
         const flowerX = cx + (i * (width * 0.08));
         const flowerY = crownY + Math.abs(i) * 8;
         
-        // Draw 5 Sakura Petals
         ctx.fillStyle = i % 2 === 0 ? '#fbcfe8' : '#f472b6';
         for (let p = 0; p < 5; p++) {
           const angle = (p * Math.PI * 2) / 5 + (time * 0.5);
@@ -608,14 +771,12 @@ function SnapStudio() {
           ctx.arc(px, py, 9, 0, Math.PI * 2);
           ctx.fill();
         }
-        // Flower Center
         ctx.fillStyle = '#fbbf24';
         ctx.beginPath();
         ctx.arc(flowerX, flowerY, 6, 0, Math.PI * 2);
         ctx.fill();
       }
 
-      // Orbiting Sparkle Petals
       for (let s = 0; s < 6; s++) {
         const sx = cx + Math.cos(time + s * 1.1) * (width * 0.3);
         const sy = crownY + Math.sin(time * 1.5 + s) * 35;
@@ -716,7 +877,6 @@ function SnapStudio() {
       backgroundColor: '#060609',
       color: '#f8fafc'
     }}>
-      
       {/* Mobile-First Header */}
       <header style={{
         padding: '12px 18px',
@@ -754,7 +914,7 @@ function SnapStudio() {
           </div>
         </div>
 
-        {/* Top Floating Badges & Flip Camera */}
+        {/* Top Badges & Flip Camera */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {stream && (
             <>
@@ -802,7 +962,7 @@ function SnapStudio() {
               borderRadius: '999px',
               boxShadow: '0 0 12px rgba(236, 72, 153, 0.5)'
             }}>
-              LIVE
+              LIVE {cloudPeersCount > 0 ? `(${cloudPeersCount} ☁️)` : ''}
             </span>
           )}
         </div>
@@ -836,7 +996,6 @@ function SnapStudio() {
           alignItems: 'center',
           justifyContent: 'center'
         }}>
-          {/* Flash Snapshot Effect Overlay */}
           {snapshotEffect && (
             <div style={{
               position: 'absolute',
@@ -884,7 +1043,6 @@ function SnapStudio() {
             </div>
           )}
 
-          {/* Active Lens Floating Badge on Viewport */}
           {stream && (
             <div style={{
               position: 'absolute',
@@ -986,7 +1144,6 @@ function SnapStudio() {
             </button>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
-              {/* Broadcast Toggle Button */}
               <button
                 onClick={() => setIsBroadcasting(!isBroadcasting)}
                 style={{
@@ -1005,7 +1162,6 @@ function SnapStudio() {
                 {isBroadcasting ? '📡 Streaming Live' : '📡 Start Broadcast'}
               </button>
 
-              {/* Snapchat-Style Photo Capture Button */}
               <button
                 onClick={capturePhoto}
                 title="Take Snap Picture"
@@ -1026,7 +1182,6 @@ function SnapStudio() {
                 📸
               </button>
 
-              {/* Stop Camera Button */}
               <button
                 onClick={stopCamera}
                 style={{
