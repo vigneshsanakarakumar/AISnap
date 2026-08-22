@@ -1133,7 +1133,7 @@ function SnapStudio() {
                 gap: '8px'
               }}
             >
-              ✨ Yes, Start Live Lenses & Stream
+              ✨ Yes, Start Lenses
             </button>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
