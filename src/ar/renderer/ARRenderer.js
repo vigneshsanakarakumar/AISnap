@@ -58,8 +58,16 @@ export class ARRenderer {
       return;
     }
 
-    const videoWidth = this.video.videoWidth || 640;
-    const videoHeight = this.video.videoHeight || 480;
+    let videoWidth = this.video.videoWidth || 640;
+    let videoHeight = this.video.videoHeight || 480;
+
+    // Apply max processing resolution (cap at ~540p height) to prevent mobile thermal throttling
+    const MAX_HEIGHT = 540;
+    if (videoHeight > MAX_HEIGHT) {
+      const ratio = MAX_HEIGHT / videoHeight;
+      videoHeight = MAX_HEIGHT;
+      videoWidth = Math.floor(videoWidth * ratio);
+    }
 
     // Sync canvas buffer resolution with native video resolution
     if (this.canvas.width !== videoWidth || this.canvas.height !== videoHeight) {
@@ -70,7 +78,7 @@ export class ARRenderer {
     // 1. Detect Landmarks (Multi-Modal on Demand)
     let trackingResult = null;
     if (this.tracker && this.tracker.isReady) {
-      if (this.activeFilter && this.activeFilter.id === 'ar_tattoo') {
+      if (this.activeFilter && (this.activeFilter.id === 'ar_piercing' || this.activeFilter.targetBodyPart)) {
         const bodyPart = this.activeFilter.targetBodyPart || 'face';
         trackingResult = this.tracker.detectAll(this.video, videoWidth, videoHeight, timestamp, bodyPart);
       } else {
@@ -81,11 +89,22 @@ export class ARRenderer {
     // 2. Render Active AR Filter
     if (this.activeFilter && typeof this.activeFilter.render === 'function') {
       try {
-        this.activeFilter.update(null, trackingResult, timestamp);
+        if (typeof this.activeFilter.update === 'function') {
+          this.activeFilter.update(null, trackingResult, timestamp);
+        }
         this.activeFilter.render(this.ctx, this.canvas, this.video, trackingResult, timestamp);
       } catch (err) {
         console.warn('Filter render error:', err);
         this.ctx.drawImage(this.video, 0, 0, videoWidth, videoHeight);
+        
+        this.ctx.save();
+        this.ctx.fillStyle = 'rgba(255, 0, 0, 0.7)';
+        this.ctx.fillRect(10, 10, Math.min(300, videoWidth - 20), 60);
+        this.ctx.fillStyle = 'white';
+        this.ctx.font = '14px monospace';
+        this.ctx.fillText('CRASH: ' + err.message, 20, 30);
+        this.ctx.fillText(err.stack?.split('\n')[1] || '', 20, 50);
+        this.ctx.restore();
       }
     } else {
       this.ctx.drawImage(this.video, 0, 0, videoWidth, videoHeight);

@@ -1,9 +1,8 @@
-/**
+﻿/**
  * AR Filter Registry — Complete Modular AR Filter Engine
  */
 
-import { DesignerNailsFilter } from './DesignerNailsFilter.js';
-import { ARTattooFilter } from './ARTattooFilter.js';
+import { ARPiercingFilter } from './ARPiercingFilter.js';
 import { PuppyDogFilter } from './PuppyDogFilter.js';
 import { CuteKittyFilter } from './CuteKittyFilter.js';
 import { BunnyRabbitFilter } from './BunnyRabbitFilter.js';
@@ -22,8 +21,7 @@ import { MirrorKaleidoscopeFilter } from './MirrorKaleidoscopeFilter.js';
 import { OriginalFilter } from './OriginalFilter.js';
 
 export const ALL_FILTERS = [
-  new DesignerNailsFilter(),
-  new ARTattooFilter(),
+  new ARPiercingFilter(),
   new PuppyDogFilter(),
   new CuteKittyFilter(),
   new BunnyRabbitFilter(),

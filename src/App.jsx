@@ -768,11 +768,10 @@ function SnapStudio() {
   const [recordingTime, setRecordingTime] = useState('00:00');
   const [availableCameras, setAvailableCameras] = useState([]);
 
-  // Interactive Filter Customization States
-  const [tattooPlacement, setTattooPlacement] = useState('hand'); // 'stomach', 'hand', 'thigh'
-  const [tattooDesign, setTattooDesign] = useState(0);
-  const [nailsMode, setNailsMode] = useState('hand'); // 'hand' or 'feet'
-  const [nailsColor, setNailsColor] = useState(0);
+  // Interactive Filter Customization States (AR Piercing Studio)
+  const [piercingPlacement, setPiercingPlacement] = useState('ear'); // 'ear', 'tongue', 'navel'
+  const [piercingDesign, setPiercingDesign] = useState(0);
+  const [piercingSize, setPiercingSize] = useState('medium'); // 'small', 'medium', 'large'
 
   // Single Controlled WebRTC References
   const mediaCallRef = useRef(null);
@@ -799,14 +798,12 @@ function SnapStudio() {
 
   const activeFilterRef = useRef(activeFilter);
 
-  // Apply tattoo / nail customization to active filter instance
+  // Apply piercing customization to active filter instance
   useEffect(() => {
-    if (activeFilter.id === 'ar_tattoo' && activeFilter.setPlacement) {
-      activeFilter.setPlacement(tattooPlacement);
-      activeFilter.setDesign(tattooDesign);
-    } else if (activeFilter.id === 'designer_nails' && activeFilter.setMode) {
-      activeFilter.setMode(nailsMode);
-      activeFilter.setColor(nailsColor);
+    if (activeFilter.id === 'ar_piercing') {
+      if (activeFilter.setPlacement) activeFilter.setPlacement(piercingPlacement);
+      if (activeFilter.setDesign) activeFilter.setDesign(piercingDesign);
+      if (activeFilter.setSize) activeFilter.setSize(piercingSize);
     }
 
     activeFilterRef.current = activeFilter;
@@ -814,7 +811,7 @@ function SnapStudio() {
       rendererRef.current.setFilter(activeFilter);
     }
     notifyFilterChange(activeFilter);
-  }, [activeFilter, tattooPlacement, tattooDesign, nailsMode, nailsColor]);
+  }, [activeFilter, piercingPlacement, piercingDesign, piercingSize]);
 
   const notifyFilterChange = (filter) => {
     const payload = {
@@ -1490,40 +1487,53 @@ function SnapStudio() {
           )}
         </div>
 
-        {/* Interactive Customization Controls for AR Tattoo Studio */}
-        {activeFilter.id === 'ar_tattoo' && isCameraActive && (
+        {/* Interactive Customization Controls for AR Piercing Studio */}
+        {activeFilter.id === 'ar_piercing' && isCameraActive && (
           <div style={{
             width: '100%',
-            backgroundColor: 'rgba(20, 20, 28, 0.88)',
-            border: '1px solid rgba(236, 72, 153, 0.3)',
+            backgroundColor: 'rgba(20, 20, 28, 0.92)',
+            border: '1px solid rgba(236, 72, 153, 0.35)',
             borderRadius: '16px',
-            padding: '8px 12px',
+            padding: '10px 14px',
             display: 'flex',
             flexDirection: 'column',
-            gap: '8px'
+            gap: '10px',
+            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)'
           }}>
+            {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '11px', fontWeight: '800', color: '#f472b6' }}>📍 Placement:</span>
-              <div style={{ display: 'flex', gap: '5px', overflowX: 'auto', scrollbarWidth: 'none' }}>
+              <span style={{ fontSize: '12px', fontWeight: '800', color: '#f472b6', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                💎 AR Piercing Studio
+              </span>
+              <span style={{ fontSize: '10px', color: '#94a3b8', fontStyle: 'italic' }}>
+                Virtual AR Preview
+              </span>
+            </div>
+
+            {/* 1. Placement */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '11px', fontWeight: '800', color: '#cbd5e1' }}>📍 Placement:</span>
+              <div style={{ display: 'flex', gap: '6px' }}>
                 {[
-                  { id: 'cheek', label: '😊 Face' },
-                  { id: 'hand', label: '✋ Hand' },
-                  { id: 'stomach', label: '🌸 Stomach' },
-                  { id: 'thigh', label: '🦵 Thigh' }
+                  { id: 'ear', label: '👂 Ear' },
+                  { id: 'tongue', label: '👅 Tongue' },
+                  { id: 'navel', label: '✨ Navel' }
                 ].map((p) => (
                   <button
                     key={p.id}
-                    onClick={() => setTattooPlacement(p.id)}
+                    onClick={() => {
+                      setPiercingPlacement(p.id);
+                      setPiercingDesign(0);
+                    }}
                     style={{
-                      padding: '3px 8px',
+                      padding: '4px 10px',
                       borderRadius: '999px',
-                      border: tattooPlacement === p.id ? '1.5px solid #ec4899' : '1px solid rgba(255, 255, 255, 0.1)',
-                      backgroundColor: tattooPlacement === p.id ? '#ec4899' : 'rgba(255, 255, 255, 0.05)',
+                      border: piercingPlacement === p.id ? '1.5px solid #ec4899' : '1px solid rgba(255, 255, 255, 0.1)',
+                      backgroundColor: piercingPlacement === p.id ? '#ec4899' : 'rgba(255, 255, 255, 0.05)',
                       color: '#ffffff',
-                      fontSize: '10px',
+                      fontSize: '11px',
                       fontWeight: '700',
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap'
+                      cursor: 'pointer'
                     }}
                   >
                     {p.label}
@@ -1532,19 +1542,25 @@ function SnapStudio() {
               </div>
             </div>
 
+            {/* 2. Jewelry Selector */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '11px', fontWeight: '800', color: '#cbd5e1' }}>🎨 Design:</span>
-              <div style={{ display: 'flex', gap: '5px', overflowX: 'auto', scrollbarWidth: 'none' }}>
-                {['🐉 Dragon Koi', '🌸 Lotus', '🦅 Phoenix', '🌹 Rose'].map((name, idx) => (
+              <span style={{ fontSize: '11px', fontWeight: '800', color: '#cbd5e1' }}>💍 Jewelry:</span>
+              <div style={{ display: 'flex', gap: '5px', overflowX: 'auto', maxWidth: '72%', scrollbarWidth: 'none' }}>
+                {(piercingPlacement === 'ear'
+                  ? ['Silver Stud', 'Gold Stud', 'Diamond Stud', 'Star Stud', 'Small Hoop', 'Gold Hoop', 'Black Hoop']
+                  : piercingPlacement === 'tongue'
+                  ? ['Silver Barbell', 'Gold Barbell', 'Black Titanium', 'Gem Barbell', 'Double Barbell']
+                  : ['Classic Silver', 'Gold Curved', 'Crystal Ring', 'Heart Charm', 'Star Charm', 'Gem Drop']
+                ).map((name, idx) => (
                   <button
                     key={idx}
-                    onClick={() => setTattooDesign(idx)}
+                    onClick={() => setPiercingDesign(idx)}
                     style={{
-                      padding: '3px 8px',
+                      padding: '3px 9px',
                       borderRadius: '8px',
-                      border: tattooDesign === idx ? '1.5px solid #8b5cf6' : '1px solid rgba(255, 255, 255, 0.08)',
-                      backgroundColor: tattooDesign === idx ? '#8b5cf6' : 'transparent',
-                      color: tattooDesign === idx ? '#ffffff' : '#94a3b8',
+                      border: piercingDesign === idx ? '1.5px solid #a855f7' : '1px solid rgba(255, 255, 255, 0.08)',
+                      backgroundColor: piercingDesign === idx ? '#a855f7' : 'transparent',
+                      color: piercingDesign === idx ? '#ffffff' : '#94a3b8',
                       fontSize: '10px',
                       fontWeight: '700',
                       cursor: 'pointer',
@@ -1556,72 +1572,32 @@ function SnapStudio() {
                 ))}
               </div>
             </div>
-          </div>
-        )}
 
-        {/* Interactive Customization Controls for Designer Nails */}
-        {activeFilter.id === 'designer_nails' && isCameraActive && (
-          <div style={{
-            width: '100%',
-            backgroundColor: 'rgba(20, 20, 28, 0.85)',
-            border: '1px solid rgba(139, 92, 246, 0.3)',
-            borderRadius: '16px',
-            padding: '8px 12px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '8px'
-          }}>
+            {/* 3. Size Selector */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '11px', fontWeight: '800', color: '#c084fc' }}>💅 Nail Mode:</span>
+              <span style={{ fontSize: '11px', fontWeight: '800', color: '#cbd5e1' }}>📏 Size:</span>
               <div style={{ display: 'flex', gap: '6px' }}>
                 {[
-                  { id: 'hand', label: '✋ Hand Nails' },
-                  { id: 'feet', label: '🦶 Toe & Leg Nails' }
-                ].map((m) => (
+                  { id: 'small', label: 'Small' },
+                  { id: 'medium', label: 'Medium' },
+                  { id: 'large', label: 'Large' }
+                ].map((s) => (
                   <button
-                    key={m.id}
-                    onClick={() => setNailsMode(m.id)}
+                    key={s.id}
+                    onClick={() => setPiercingSize(s.id)}
                     style={{
-                      padding: '4px 10px',
-                      borderRadius: '999px',
-                      border: nailsMode === m.id ? '1.5px solid #8b5cf6' : '1px solid rgba(255, 255, 255, 0.1)',
-                      backgroundColor: nailsMode === m.id ? '#8b5cf6' : 'rgba(255, 255, 255, 0.05)',
-                      color: '#ffffff',
+                      padding: '3px 8px',
+                      borderRadius: '6px',
+                      border: piercingSize === s.id ? '1.5px solid #3b82f6' : '1px solid rgba(255, 255, 255, 0.08)',
+                      backgroundColor: piercingSize === s.id ? '#3b82f6' : 'transparent',
+                      color: piercingSize === s.id ? '#ffffff' : '#94a3b8',
                       fontSize: '10px',
                       fontWeight: '700',
                       cursor: 'pointer'
                     }}
                   >
-                    {m.label}
+                    {s.label}
                   </button>
-                ))}
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '11px', fontWeight: '800', color: '#cbd5e1' }}>🎨 Color:</span>
-              <div style={{ display: 'flex', gap: '6px' }}>
-                {[
-                  { name: 'Ruby', bg: '#e11d48' },
-                  { name: 'Holo', bg: '#8b5cf6' },
-                  { name: 'Emerald', bg: '#059669' },
-                  { name: 'Sunset', bg: '#f97316' },
-                  { name: 'Night', bg: '#1e1b4b' }
-                ].map((c, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => setNailsColor(idx)}
-                    title={c.name}
-                    style={{
-                      width: '24px',
-                      height: '24px',
-                      borderRadius: '50%',
-                      backgroundColor: c.bg,
-                      border: nailsColor === idx ? '2.5px solid #ffffff' : '1.5px solid rgba(255, 255, 255, 0.2)',
-                      boxShadow: nailsColor === idx ? `0 0 10px ${c.bg}` : 'none',
-                      cursor: 'pointer'
-                    }}
-                  />
                 ))}
               </div>
             </div>

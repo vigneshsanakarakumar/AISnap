@@ -21,6 +21,10 @@ export class FaceTracker {
     this.isInitializing = false;
     this.isReady = false;
 
+    this.handInitPromise = null;
+    this.poseInitPromise = null;
+    this.handInitCount = 0;
+
     this.faceSmoother = new LandmarkSmoother(0.5);
     this.handSmoother = new LandmarkSmoother(0.5);
     this.poseSmoother = new LandmarkSmoother(0.5);
@@ -124,62 +128,75 @@ export class FaceTracker {
 
   async ensureHandLandmarker() {
     if (this.handLandmarker) return this.handLandmarker;
-    try {
-      const vision = await this.getVisionTasks();
-      this.handLandmarker = await HandLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath:
-            'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
-          delegate: 'GPU'
-        },
-        runningMode: 'VIDEO',
-        numHands: 1
-      });
+    if (this.handInitPromise) return this.handInitPromise;
+
+    this.handInitCount++;
+    console.log(`HandLandmarker init called. Count: ${this.handInitCount}`);
+
+    this.handInitPromise = (async () => {
+      try {
+        const vision = await this.getVisionTasks();
+        this.handLandmarker = await HandLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath:
+              'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+            delegate: 'GPU'
+          },
+          runningMode: 'VIDEO',
+          numHands: 1
+        });
+      } catch (e) {
+        console.warn('HandLandmarker fallback to CPU:', e);
+        const vision = await this.getVisionTasks();
+        this.handLandmarker = await HandLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath:
+              'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+            delegate: 'CPU'
+          },
+          runningMode: 'VIDEO',
+          numHands: 1
+        });
+      }
       return this.handLandmarker;
-    } catch (e) {
-      console.warn('HandLandmarker fallback to CPU:', e);
-      const vision = await this.getVisionTasks();
-      this.handLandmarker = await HandLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath:
-            'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
-          delegate: 'CPU'
-        },
-        runningMode: 'VIDEO',
-        numHands: 1
-      });
-      return this.handLandmarker;
-    }
+    })();
+
+    return this.handInitPromise;
   }
 
   async ensurePoseLandmarker() {
     if (this.poseLandmarker) return this.poseLandmarker;
-    try {
-      const vision = await this.getVisionTasks();
-      this.poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath:
-            'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
-          delegate: 'GPU'
-        },
-        runningMode: 'VIDEO',
-        numPoses: 1
-      });
+    if (this.poseInitPromise) return this.poseInitPromise;
+
+    this.poseInitPromise = (async () => {
+      try {
+        const vision = await this.getVisionTasks();
+        this.poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath:
+              'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+            delegate: 'GPU'
+          },
+          runningMode: 'VIDEO',
+          numPoses: 1
+        });
+      } catch (e) {
+        console.warn('PoseLandmarker fallback to CPU:', e);
+        const vision = await this.getVisionTasks();
+        this.poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath:
+              'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+            delegate: 'CPU'
+          },
+          runningMode: 'VIDEO',
+          numPoses: 1
+        });
+      }
       return this.poseLandmarker;
-    } catch (e) {
-      console.warn('PoseLandmarker fallback to CPU:', e);
-      const vision = await this.getVisionTasks();
-      this.poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath:
-            'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
-          delegate: 'CPU'
-        },
-        runningMode: 'VIDEO',
-        numPoses: 1
-      });
-      return this.poseLandmarker;
-    }
+    })();
+
+    return this.poseInitPromise;
   }
 
   detectFace(videoElement, canvasWidth, canvasHeight, timestamp = performance.now()) {
