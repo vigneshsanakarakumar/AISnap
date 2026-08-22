@@ -10,6 +10,24 @@ import { ALL_FILTERS } from './ar/filters/index.js';
 // Dedicated Direct 1-to-1 Cloud Receiver Endpoint
 const RECEIVER_PORTAL_ID = 'aisnap-portal-stream';
 
+function getIceServers() {
+  const servers = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:global.stun.twilio.com:3478' }
+  ];
+
+  if (import.meta.env?.VITE_TURN_URL) {
+    servers.push({
+      urls: import.meta.env.VITE_TURN_URL,
+      username: import.meta.env.VITE_TURN_USERNAME || '',
+      credential: import.meta.env.VITE_TURN_CREDENTIAL || ''
+    });
+  }
+
+  return servers;
+}
+
 // Error Boundary
 class ErrorBoundary extends Component {
   constructor(props) {
@@ -46,27 +64,35 @@ class ErrorBoundary extends Component {
   }
 }
 
-// Dedicated Receiver Portal (/aa) — Pairs with the single latest active user
+// Dedicated Receiver Portal (/aa)
 function DedicatedReceiver() {
-  const [remoteImage, setRemoteImage] = useState(null);
-  const [remoteStream, setRemoteStream] = useState(null);
-  const [remoteFilterName, setRemoteFilterName] = useState('RAW');
-  const [remoteFilterIcon, setRemoteFilterIcon] = useState('📷');
-  const [remoteTimestamp, setRemoteTimestamp] = useState(null);
-  const [isConnected, setIsConnected] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [remoteFilterName, setRemoteFilterName] = useState('Lens');
+  const [remoteFilterIcon, setRemoteFilterIcon] = useState('✨');
   const [receiverFps, setReceiverFps] = useState(0);
   const [savedPhotos, setSavedPhotos] = useState([]);
   const [newPhotoToast, setNewPhotoToast] = useState(null);
 
+  // Debug Panel State for Laptop
+  const [receiverPeerStatus, setReceiverPeerStatus] = useState('INITIALIZING');
+  const [incomingCallStatus, setIncomingCallStatus] = useState('NO');
+  const [remoteStreamStatus, setRemoteStreamStatus] = useState('MISSING');
+  const [videoTrackStatus, setVideoTrackStatus] = useState('ENDED');
+  const [videoElementStatus, setVideoElementStatus] = useState('BLOCKED');
+
   const videoRef = useRef(null);
   const peerRef = useRef(null);
-  const activeConnRef = useRef(null);
+  const activeMediaCallRef = useRef(null);
+  const activeDataConnRef = useRef(null);
   const broadcastChannelRef = useRef(null);
   const receiverFrameCountRef = useRef(0);
   const receiverLastFpsUpdateRef = useRef(Date.now());
+  const fpsIntervalRef = useRef(null);
 
   useEffect(() => {
-    // 1. Same-device local BroadcastChannel
+    console.log('[LAPTOP] Receiver initializing');
+
+    // 1. Local BroadcastChannel for same-device testing
     try {
       if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
         const channel = new BroadcastChannel('snap_filter_broadcast_stream');
@@ -74,33 +100,37 @@ function DedicatedReceiver() {
 
         channel.onmessage = (event) => {
           try {
-            const { type, frame, image, filterName, filterIcon, timestamp } = event.data || {};
-            if (type === 'SNAP_FRAME' && frame) {
-              setRemoteImage(frame);
-              setRemoteFilterName(filterName || 'Filter');
-              setRemoteFilterIcon(filterIcon || '✨');
-              setRemoteTimestamp(timestamp || new Date().toLocaleTimeString());
-              setIsConnected(true);
-              updateFps();
-            } else if (type === 'REMOTE_SNAPSHOT' && image) {
+            const { type, image, filterName, filterIcon, timestamp } = event.data || {};
+            if (type === 'REMOTE_SNAPSHOT' && image) {
               handleNewSnapshot({ image, filterName, filterIcon, timestamp });
-            } else if (type === 'SNAP_STREAM_CLOSED') {
-              setRemoteImage(null);
-              setRemoteStream(null);
-              setIsConnected(false);
-              setReceiverFps(0);
+            } else if (type === 'FILTER_CHANGE') {
+              if (filterName) setRemoteFilterName(filterName);
+              if (filterIcon) setRemoteFilterIcon(filterIcon);
             }
           } catch (e) {
-            console.error('Local channel error:', e);
+            console.error('[LAPTOP] BroadcastChannel error:', e);
           }
         };
       }
     } catch (e) {
-      console.warn('BroadcastChannel error:', e);
+      console.warn('[LAPTOP] BroadcastChannel warning:', e);
     }
 
-    // 2. Direct WebRTC Receiver
+    // 2. Initialize Receiver Peer
     initReceiverPeer();
+
+    // FPS Meter Loop
+    fpsIntervalRef.current = setInterval(() => {
+      if (videoRef.current && !videoRef.current.paused && videoRef.current.readyState >= 2) {
+        const now = Date.now();
+        if (now - receiverLastFpsUpdateRef.current >= 1000) {
+          setReceiverFps(24);
+          receiverLastFpsUpdateRef.current = now;
+        }
+      } else {
+        setReceiverFps(0);
+      }
+    }, 1000);
 
     const handleUnload = () => {
       if (peerRef.current) {
@@ -111,8 +141,12 @@ function DedicatedReceiver() {
 
     return () => {
       window.removeEventListener('beforeunload', handleUnload);
+      if (fpsIntervalRef.current) clearInterval(fpsIntervalRef.current);
       if (broadcastChannelRef.current) {
         try { broadcastChannelRef.current.close(); } catch (e) {}
+      }
+      if (activeMediaCallRef.current) {
+        try { activeMediaCallRef.current.close(); } catch (e) {}
       }
       if (peerRef.current) {
         try { peerRef.current.destroy(); } catch (e) {}
@@ -125,66 +159,129 @@ function DedicatedReceiver() {
       try { peerRef.current.destroy(); } catch (e) {}
     }
 
+    console.log('[LAPTOP] Creating Peer with ID:', RECEIVER_PORTAL_ID);
     const peer = new Peer(RECEIVER_PORTAL_ID, {
       debug: 1,
       config: {
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' },
-          { urls: 'stun:global.stun.twilio.com:3478' }
-        ]
+        iceServers: getIceServers()
       }
     });
 
     peerRef.current = peer;
 
-    // Incoming connection from the latest phone user
-    peer.on('connection', (conn) => {
-      // Close previous connection to ensure only the latest user is active
-      if (activeConnRef.current && activeConnRef.current !== conn) {
-        try { activeConnRef.current.close(); } catch (e) {}
-      }
+    peer.on('open', (id) => {
+      console.log('[LAPTOP] Receiver peer open:', id);
+      console.log('[LAPTOP] Receiver ready');
+      setReceiverPeerStatus('READY');
+    });
 
-      activeConnRef.current = conn;
-      setIsConnected(true);
+    // Single Controlled Incoming WebRTC MediaCall Handler
+    peer.on('call', (call) => {
+      console.log('[LAPTOP] Incoming call received from:', call.peer);
+      setIncomingCallStatus('YES');
+
+      if (activeMediaCallRef.current) {
+        console.log('[LAPTOP] Closing existing active media call');
+        try {
+          activeMediaCallRef.current.close();
+        } catch (e) {}
+      }
+      activeMediaCallRef.current = call;
+
+      console.log('[LAPTOP] call.answer executed');
+      call.answer();
+
+      call.on('stream', async (remoteStream) => {
+        console.log('[LAPTOP] Remote stream received');
+        setRemoteStreamStatus('RECEIVED');
+
+        const tracks = remoteStream.getVideoTracks();
+        console.log('[LAPTOP] Video tracks count:', tracks.length);
+
+        if (tracks.length > 0) {
+          console.log('[LAPTOP] Track readyState:', tracks[0].readyState);
+          setVideoTrackStatus(tracks[0].readyState === 'live' ? 'LIVE' : 'ENDED');
+
+          tracks[0].onended = () => {
+            console.log('[LAPTOP] Video track ended');
+            setVideoTrackStatus('ENDED');
+            setIsStreaming(false);
+          };
+        } else {
+          setVideoTrackStatus('ENDED');
+        }
+
+        if (!videoRef.current) {
+          console.error('[LAPTOP] VIDEO ELEMENT DOES NOT EXIST');
+          setVideoElementStatus('BLOCKED');
+          return;
+        }
+
+        videoRef.current.srcObject = remoteStream;
+        videoRef.current.muted = true;
+        videoRef.current.autoplay = true;
+        videoRef.current.playsInline = true;
+        console.log('[LAPTOP] video.srcObject assigned');
+
+        try {
+          await videoRef.current.play();
+          console.log('[LAPTOP] VIDEO PLAYING SUCCESSFULLY');
+          setVideoElementStatus('PLAYING');
+          setIsStreaming(true);
+        } catch (error) {
+          console.error('[LAPTOP] VIDEO PLAY FAILED', error);
+          setVideoElementStatus('BLOCKED');
+        }
+      });
+
+      call.on('close', () => {
+        console.log('[LAPTOP] Call closed');
+        if (activeMediaCallRef.current === call) {
+          activeMediaCallRef.current = null;
+          setIsStreaming(false);
+          setVideoTrackStatus('ENDED');
+          setVideoElementStatus('BLOCKED');
+          setRemoteStreamStatus('MISSING');
+        }
+      });
+
+      call.on('error', (err) => {
+        console.error('[LAPTOP] Call error:', err);
+        if (activeMediaCallRef.current === call) {
+          activeMediaCallRef.current = null;
+          setIsStreaming(false);
+        }
+      });
+    });
+
+    // Metadata DataChannel for Snapshots and Filters
+    peer.on('connection', (conn) => {
+      console.log('[LAPTOP] Incoming metadata connection from:', conn.peer);
+      activeDataConnRef.current = conn;
 
       conn.on('data', (data) => {
-        if (data && data.type === 'FRAME_DATA' && data.frame) {
-          setRemoteImage(data.frame);
-          setRemoteFilterName(data.filterName || 'Lens');
-          setRemoteFilterIcon(data.filterIcon || '✨');
-          setRemoteTimestamp(data.timestamp);
-          setIsConnected(true);
-          updateFps();
-        } else if (data && data.type === 'REMOTE_SNAPSHOT' && data.image) {
+        if (data?.type === 'REMOTE_SNAPSHOT' && data.image) {
           handleNewSnapshot(data);
+        } else if (data?.type === 'FILTER_CHANGE') {
+          if (data.filterName) setRemoteFilterName(data.filterName);
+          if (data.filterIcon) setRemoteFilterIcon(data.filterIcon);
         }
       });
 
       conn.on('close', () => {
-        if (activeConnRef.current === conn) {
-          activeConnRef.current = null;
-          setIsConnected(false);
+        if (activeDataConnRef.current === conn) {
+          activeDataConnRef.current = null;
         }
-      });
-    });
-
-    // Handle Incoming WebRTC Video Stream
-    peer.on('call', (call) => {
-      call.answer();
-      call.on('stream', (stream) => {
-        setRemoteStream(stream);
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play().catch(console.warn);
-        }
-        setIsConnected(true);
       });
     });
 
     peer.on('error', (err) => {
+      console.error('[LAPTOP] Receiver peer error:', err);
       if (err.type === 'unavailable-id') {
-        setTimeout(() => initReceiverPeer(), 1000);
+        setReceiverPeerStatus('FAILED (ID in use - retrying...)');
+        setTimeout(() => initReceiverPeer(), 1500);
+      } else {
+        setReceiverPeerStatus(`FAILED (${err.type || err.message})`);
       }
     });
   };
@@ -197,16 +294,6 @@ function DedicatedReceiver() {
     }, 7000);
   };
 
-  const updateFps = () => {
-    receiverFrameCountRef.current += 1;
-    const now = Date.now();
-    if (now - receiverLastFpsUpdateRef.current >= 1000) {
-      setReceiverFps(receiverFrameCountRef.current);
-      receiverFrameCountRef.current = 0;
-      receiverLastFpsUpdateRef.current = now;
-    }
-  };
-
   const downloadPhoto = (photo) => {
     const a = document.createElement('a');
     a.href = photo.image;
@@ -215,8 +302,6 @@ function DedicatedReceiver() {
     a.click();
     document.body.removeChild(a);
   };
-
-  const hasFeed = Boolean(remoteStream || remoteImage);
 
   return (
     <div style={{
@@ -267,9 +352,9 @@ function DedicatedReceiver() {
             borderRadius: '999px',
             fontSize: '11px',
             fontWeight: '700',
-            backgroundColor: hasFeed ? 'rgba(34, 197, 94, 0.18)' : 'rgba(255, 255, 255, 0.06)',
-            color: hasFeed ? '#4ade80' : '#94a3b8',
-            border: `1px solid ${hasFeed ? 'rgba(34, 197, 94, 0.3)' : 'rgba(255, 255, 255, 0.1)'}`,
+            backgroundColor: isStreaming ? 'rgba(34, 197, 94, 0.18)' : 'rgba(255, 255, 255, 0.06)',
+            color: isStreaming ? '#4ade80' : '#94a3b8',
+            border: `1px solid ${isStreaming ? 'rgba(34, 197, 94, 0.3)' : 'rgba(255, 255, 255, 0.1)'}`,
             display: 'flex',
             alignItems: 'center',
             gap: '6px'
@@ -278,13 +363,13 @@ function DedicatedReceiver() {
               width: '7px',
               height: '7px',
               borderRadius: '50%',
-              backgroundColor: hasFeed ? '#4ade80' : '#64748b',
+              backgroundColor: isStreaming ? '#4ade80' : '#64748b',
               display: 'inline-block'
             }}></span>
-            {hasFeed ? `LIVE (${receiverFps || 30} FPS)` : 'READY'}
+            {isStreaming ? `LIVE (${receiverFps || 24} FPS)` : 'READY'}
           </span>
 
-          {hasFeed && (
+          {isStreaming && (
             <span style={{
               padding: '4px 10px',
               borderRadius: '999px',
@@ -349,6 +434,29 @@ function DedicatedReceiver() {
       )}
 
       <main style={{ flex: 1, padding: '16px', maxWidth: '760px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        
+        {/* On-Screen Diagnostic Debug Panel */}
+        <div style={{
+          backgroundColor: '#0c0d14',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          borderRadius: '16px',
+          padding: '12px 16px',
+          fontSize: '11px',
+          fontFamily: 'monospace'
+        }}>
+          <div style={{ fontWeight: '800', color: '#cbd5e1', marginBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
+            <span>🛠️ LAPTOP WEBRTC DIAGNOSTICS</span>
+            <span style={{ color: '#ec4899' }}>{isStreaming ? 'STREAMING OK' : 'STANDBY'}</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '8px' }}>
+            <div>Receiver Peer: <strong style={{ color: receiverPeerStatus === 'READY' ? '#4ade80' : '#f87171' }}>{receiverPeerStatus}</strong></div>
+            <div>Incoming Call: <strong style={{ color: incomingCallStatus === 'YES' ? '#4ade80' : '#94a3b8' }}>{incomingCallStatus}</strong></div>
+            <div>Remote Stream: <strong style={{ color: remoteStreamStatus === 'RECEIVED' ? '#4ade80' : '#94a3b8' }}>{remoteStreamStatus}</strong></div>
+            <div>Video Track: <strong style={{ color: videoTrackStatus === 'LIVE' ? '#4ade80' : '#f87171' }}>{videoTrackStatus}</strong></div>
+            <div>Video Element: <strong style={{ color: videoElementStatus === 'PLAYING' ? '#4ade80' : '#f87171' }}>{videoElementStatus}</strong></div>
+          </div>
+        </div>
+
         {/* Main Live Viewport */}
         <div style={{
           backgroundColor: '#0f0f14',
@@ -367,6 +475,7 @@ function DedicatedReceiver() {
             alignItems: 'center',
             justifyContent: 'center'
           }}>
+            {/* Real Visible Video Element */}
             <video
               ref={videoRef}
               autoPlay
@@ -376,19 +485,11 @@ function DedicatedReceiver() {
                 width: '100%',
                 height: '100%',
                 objectFit: 'contain',
-                display: remoteStream ? 'block' : 'none'
+                display: isStreaming ? 'block' : 'none'
               }}
             />
 
-            {!remoteStream && remoteImage && (
-              <img
-                src={remoteImage}
-                alt="Live Stream from Phone"
-                style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-              />
-            )}
-
-            {!hasFeed && (
+            {!isStreaming && (
               <div style={{ textAlign: 'center', padding: '36px', color: '#94a3b8' }}>
                 <div style={{
                   width: '68px',
@@ -422,12 +523,6 @@ function DedicatedReceiver() {
               </div>
             )}
           </div>
-
-          {remoteTimestamp && (
-            <div style={{ padding: '10px 16px', fontSize: '11px', color: '#64748b', textAlign: 'right', borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>
-              CLOUD PACKET RX: <span style={{ color: '#cbd5e1' }}>{remoteTimestamp}</span>
-            </div>
-          )}
         </div>
 
         {/* Captured Photos Gallery on Laptop */}
@@ -489,20 +584,32 @@ function SnapStudio() {
   const [recordingTime, setRecordingTime] = useState('00:00');
   const [availableCameras, setAvailableCameras] = useState([]);
 
-  // Session ID for phone
+  // Debug Panel State for Phone
+  const [peerDebugStatus, setPeerDebugStatus] = useState('INITIALIZING');
+  const [cameraDebugStatus, setCameraDebugStatus] = useState('IDLE');
+  const [canvasDebugStatus, setCanvasDebugStatus] = useState('IDLE');
+  const [canvasStreamStatus, setCanvasStreamStatus] = useState('MISSING');
+  const [mediaCallStatus, setMediaCallStatus] = useState('IDLE');
+
+  // Single Controlled WebRTC References
+  const mediaCallRef = useRef(null);
+  const canvasStreamRef = useRef(null);
+  const connectionAttemptRef = useRef(false);
+  const reconnectTimeoutRef = useRef(null);
+  const reconnectDelayRef = useRef(1000); // Exponential backoff starts at 1s
+
+  // Unique session ID for phone to avoid broker locks
   const sessionIdRef = useRef(`snap-phone-${Date.now()}`);
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
-  const broadcastCanvasRef = useRef(null);
   const cameraManagerRef = useRef(null);
   const faceTrackerRef = useRef(null);
   const rendererRef = useRef(null);
   const recorderRef = useRef(null);
   const peerRef = useRef(null);
-  const activeConnRef = useRef(null);
+  const dataConnRef = useRef(null);
   const broadcastChannelRef = useRef(null);
-  const retryIntervalRef = useRef(null);
 
   const activeFilterRef = useRef(activeFilter);
   useEffect(() => {
@@ -510,18 +617,27 @@ function SnapStudio() {
     if (rendererRef.current) {
       rendererRef.current.setFilter(activeFilter);
     }
+    // Notify laptop of filter change over metadata DataChannel & BroadcastChannel
+    notifyFilterChange(activeFilter);
   }, [activeFilter]);
 
-  // Lightweight frame compressor canvas
-  useEffect(() => {
-    const offscreen = document.createElement('canvas');
-    offscreen.width = 360;
-    offscreen.height = 480;
-    broadcastCanvasRef.current = offscreen;
-  }, []);
+  const notifyFilterChange = (filter) => {
+    const payload = {
+      type: 'FILTER_CHANGE',
+      filterName: filter.name,
+      filterIcon: filter.icon
+    };
+    if (broadcastChannelRef.current) {
+      try { broadcastChannelRef.current.postMessage(payload); } catch (e) {}
+    }
+    if (dataConnRef.current && dataConnRef.current.open) {
+      try { dataConnRef.current.send(payload); } catch (e) {}
+    }
+  };
 
   // Initialize Modules & Outbound Link to Laptop
   useEffect(() => {
+    console.log('[PHONE] Studio initializing');
     const cameraManager = new CameraManager();
     const faceTracker = new FaceTracker();
     const recorder = new ARRecorder();
@@ -532,6 +648,9 @@ function SnapStudio() {
 
     cameraManager.setStatusCallback(({ status, error }) => {
       setCameraState(status);
+      if (status === 'active') setCameraDebugStatus('READY');
+      else if (status === 'error') setCameraDebugStatus('FAILED');
+      else setCameraDebugStatus(status.toUpperCase());
       if (error) setErrorMsg(error);
     });
 
@@ -543,13 +662,16 @@ function SnapStudio() {
         broadcastChannelRef.current = new BroadcastChannel('snap_filter_broadcast_stream');
       }
     } catch (e) {
-      console.warn('BroadcastChannel error:', e);
+      console.warn('[PHONE] BroadcastChannel warning:', e);
     }
 
-    // Connect to Laptop
+    // Initialize Phone PeerJS Instance
     initPhonePeer();
 
     const handleUnload = () => {
+      if (mediaCallRef.current) {
+        try { mediaCallRef.current.close(); } catch (e) {}
+      }
       if (peerRef.current) {
         try { peerRef.current.destroy(); } catch (e) {}
       }
@@ -558,6 +680,13 @@ function SnapStudio() {
 
     return () => {
       window.removeEventListener('beforeunload', handleUnload);
+      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      if (mediaCallRef.current) {
+        try { mediaCallRef.current.close(); } catch (e) {}
+      }
+      if (canvasStreamRef.current) {
+        canvasStreamRef.current.getTracks().forEach((t) => t.stop());
+      }
       if (cameraManager) cameraManager.stopCamera();
       if (faceTracker) faceTracker.dispose();
       if (rendererRef.current) rendererRef.current.stop();
@@ -567,13 +696,11 @@ function SnapStudio() {
       if (broadcastChannelRef.current) {
         try { broadcastChannelRef.current.close(); } catch (e) {}
       }
-      if (retryIntervalRef.current) {
-        clearInterval(retryIntervalRef.current);
-      }
     };
   }, []);
 
   const initPhonePeer = () => {
+    console.log('[PHONE] Peer initializing with ID:', sessionIdRef.current);
     if (peerRef.current) {
       try { peerRef.current.destroy(); } catch (e) {}
     }
@@ -581,93 +708,157 @@ function SnapStudio() {
     const phonePeer = new Peer(sessionIdRef.current, {
       debug: 1,
       config: {
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' },
-          { urls: 'stun:global.stun.twilio.com:3478' }
-        ]
+        iceServers: getIceServers()
       }
     });
 
     peerRef.current = phonePeer;
 
-    phonePeer.on('open', () => {
-      connectToLaptop(phonePeer);
+    phonePeer.on('open', (id) => {
+      console.log('[PHONE] Peer open:', id);
+      console.log('[PHONE] Peer ID:', id);
+      setPeerDebugStatus('READY');
+      // If camera is already active, initiate remote stream call
+      if (cameraManagerRef.current?.isActive() && rendererRef.current?.isRunning) {
+        startRemoteStream();
+      }
     });
 
-    // Rapid 800ms reconnect search to instantly link upon refresh
-    retryIntervalRef.current = setInterval(() => {
-      if (phonePeer && !phonePeer.destroyed && !activeConnRef.current?.open) {
-        connectToLaptop(phonePeer);
-      }
-    }, 800);
+    phonePeer.on('error', (err) => {
+      console.error('[PHONE] Peer error:', err);
+      setPeerDebugStatus(`FAILED (${err.type || err.message})`);
+    });
   };
 
-  const connectToLaptop = (peer) => {
-    if (!peer || peer.destroyed) return;
+  // STEP 3 & STEP 4 — Single Controlled WebRTC Stream Call Pipeline
+  const startRemoteStream = () => {
+    // 1. Guard against duplicate calls or unready states
+    if (!peerRef.current || peerRef.current.destroyed) {
+      console.log('[PHONE] Cannot stream: Peer not ready');
+      return;
+    }
+    if (mediaCallRef.current) {
+      console.log('[PHONE] Stream call already active, skipping duplicate call');
+      return;
+    }
+    if (connectionAttemptRef.current) {
+      console.log('[PHONE] Connection attempt already running, skipping');
+      return;
+    }
+    if (!canvasRef.current || canvasRef.current.width === 0 || canvasRef.current.height === 0) {
+      console.log('[PHONE] Cannot stream: Canvas not ready or dimensions 0');
+      return;
+    }
 
-    try {
-      const conn = peer.connect(RECEIVER_PORTAL_ID, {
+    connectionAttemptRef.current = true;
+    console.log('[PHONE] Starting single controlled remote stream...');
+
+    // 2. Create Canvas CaptureStream once per active session
+    if (!canvasStreamRef.current || canvasStreamRef.current.getVideoTracks().length === 0 || canvasStreamRef.current.getVideoTracks()[0].readyState === 'ended') {
+      console.log('[PHONE] Creating captureStream(24)');
+      console.log(`[PHONE] Canvas dimensions: ${canvasRef.current.width}x${canvasRef.current.height}`);
+      
+      const stream = canvasRef.current.captureStream(24);
+      canvasStreamRef.current = stream;
+
+      const tracks = stream.getVideoTracks();
+      console.log('[PHONE] Video tracks count:', tracks.length);
+
+      if (tracks.length === 0) {
+        console.error('[PHONE] ERROR: captureStream produced 0 tracks!');
+        setCanvasStreamStatus('MISSING');
+        connectionAttemptRef.current = false;
+        return;
+      }
+
+      console.log('[PHONE] Video track readyState:', tracks[0].readyState);
+      setCanvasStreamStatus('LIVE');
+    }
+
+    const streamToCall = canvasStreamRef.current;
+
+    // 3. Connect Metadata DataChannel
+    if (!dataConnRef.current || !dataConnRef.current.open) {
+      console.log('[PHONE] Connecting metadata channel to laptop');
+      const conn = peerRef.current.connect(RECEIVER_PORTAL_ID, {
         reliable: false,
         serialization: 'json'
       });
-
+      dataConnRef.current = conn;
       conn.on('open', () => {
-        activeConnRef.current = conn;
-
-        // Initiate WebRTC video stream
-        if (canvasRef.current && canvasRef.current.captureStream) {
-          try {
-            const stream = canvasRef.current.captureStream(25);
-            peer.call(RECEIVER_PORTAL_ID, stream);
-          } catch (e) {}
-        }
-
-        sendLatestFrame(conn);
+        console.log('[PHONE] Metadata DataChannel open to laptop');
+        notifyFilterChange(activeFilterRef.current);
       });
-
-      conn.on('close', () => {
-        if (activeConnRef.current === conn) {
-          activeConnRef.current = null;
-        }
-      });
-
-      conn.on('error', () => {
-        if (activeConnRef.current === conn) {
-          activeConnRef.current = null;
-        }
-      });
-    } catch (e) {
-      console.warn('Connect error:', e);
     }
-  };
 
-  const getCompressedFrame = () => {
-    if (!canvasRef.current || !broadcastCanvasRef.current) return null;
-    try {
-      const offscreen = broadcastCanvasRef.current;
-      const ctx = offscreen.getContext('2d');
-      ctx.drawImage(canvasRef.current, 0, 0, offscreen.width, offscreen.height);
-      return offscreen.toDataURL('image/jpeg', 0.42);
-    } catch (e) {
-      return null;
-    }
-  };
+    // 4. Create WebRTC Call to Laptop
+    console.log(`[PHONE] Creating WebRTC call to ${RECEIVER_PORTAL_ID}`);
+    setMediaCallStatus('CONNECTING');
 
-  const sendLatestFrame = (conn) => {
-    if (!conn || !conn.open) return;
     try {
-      const frameData = getCompressedFrame();
-      if (frameData) {
-        conn.send({
-          type: 'FRAME_DATA',
-          frame: frameData,
-          filterName: activeFilterRef.current.name,
-          filterIcon: activeFilterRef.current.icon,
-          timestamp: new Date().toLocaleTimeString()
-        });
+      const call = peerRef.current.call(RECEIVER_PORTAL_ID, streamToCall);
+      mediaCallRef.current = call;
+      connectionAttemptRef.current = false;
+
+      // Handle Call Events
+      if (call.peerConnection) {
+        call.peerConnection.onconnectionstatechange = () => {
+          const state = call.peerConnection.connectionState;
+          console.log('[PHONE] ICE/connection state:', state);
+          if (state === 'connected') {
+            console.log('[PHONE] Call connected');
+            setMediaCallStatus('CONNECTED');
+            reconnectDelayRef.current = 1000; // Reset exponential backoff
+          } else if (state === 'failed' || state === 'disconnected') {
+            setMediaCallStatus('FAILED');
+            handleCallClosedOrFailed();
+          }
+        };
+      } else {
+        // Fallback status
+        setTimeout(() => {
+          if (mediaCallRef.current === call) {
+            setMediaCallStatus('CONNECTED');
+          }
+        }, 1500);
       }
-    } catch (e) {}
+
+      call.on('close', () => {
+        console.log('[PHONE] Call closed');
+        handleCallClosedOrFailed();
+      });
+
+      call.on('error', (err) => {
+        console.error('[PHONE] Call error:', err);
+        handleCallClosedOrFailed();
+      });
+
+    } catch (err) {
+      console.error('[PHONE] Create call exception:', err);
+      connectionAttemptRef.current = false;
+      handleCallClosedOrFailed();
+    }
+  };
+
+  const handleCallClosedOrFailed = () => {
+    mediaCallRef.current = null;
+    setMediaCallStatus('IDLE');
+
+    // STEP 8 — Exponential Backoff Reconnection (1s -> 2s -> 4s -> 8s -> max 15s)
+    if (cameraManagerRef.current?.isActive() && rendererRef.current?.isRunning) {
+      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      
+      const delay = reconnectDelayRef.current;
+      console.log(`[PHONE] Scheduling reconnect in ${delay}ms`);
+      
+      reconnectTimeoutRef.current = setTimeout(() => {
+        if (cameraManagerRef.current?.isActive() && rendererRef.current?.isRunning) {
+          startRemoteStream();
+        }
+      }, delay);
+
+      reconnectDelayRef.current = Math.min(reconnectDelayRef.current * 2, 15000);
+    }
   };
 
   const startSession = async () => {
@@ -678,6 +869,8 @@ function SnapStudio() {
       const camera = cameraManagerRef.current;
       camera.setVideoElement(videoRef.current);
       await camera.startCamera();
+      console.log('[PHONE] Camera ready');
+      setCameraDebugStatus('READY');
 
       const devices = await camera.getAvailableCameras();
       setAvailableCameras(devices);
@@ -689,59 +882,24 @@ function SnapStudio() {
         setFps(currentFps);
       };
 
-      // Frame Broadcast Pipeline
-      let lastBroadcastTime = 0;
-      renderer.onFrameRendered = (canvas, filter) => {
-        const now = performance.now();
-        if (now - lastBroadcastTime > 40) {
-          try {
-            const frameData = getCompressedFrame();
-            if (!frameData) return;
-
-            const payload = {
-              type: 'SNAP_FRAME',
-              frame: frameData,
-              filterName: filter ? filter.name : 'Lens',
-              filterIcon: filter ? filter.icon : '✨',
-              timestamp: new Date().toLocaleTimeString()
-            };
-
-            // Local BroadcastChannel
-            if (broadcastChannelRef.current) {
-              broadcastChannelRef.current.postMessage(payload);
-            }
-
-            // WebRTC to Laptop
-            if (activeConnRef.current && activeConnRef.current.open) {
-              try {
-                activeConnRef.current.send({
-                  type: 'FRAME_DATA',
-                  frame: frameData,
-                  filterName: payload.filterName,
-                  filterIcon: payload.filterIcon,
-                  timestamp: payload.timestamp
-                });
-              } catch (e) {}
-            }
-
-            lastBroadcastTime = now;
-          } catch (e) {}
+      // Set canvas status once first frame renders
+      renderer.onFrameRendered = () => {
+        if (canvasDebugStatus !== 'READY') {
+          setCanvasDebugStatus('READY');
+          console.log('[PHONE] AR renderer ready & Canvas is rendering');
+          // Start stream once canvas is actively rendering
+          startRemoteStream();
         }
       };
 
       rendererRef.current = renderer;
       renderer.start();
-
-      // Trigger WebRTC stream
-      if (peerRef.current && canvasRef.current?.captureStream) {
-        try {
-          const stream = canvasRef.current.captureStream(25);
-          peerRef.current.call(RECEIVER_PORTAL_ID, stream);
-        } catch (e) {}
-      }
+      console.log('[PHONE] AR renderer started');
 
     } catch (err) {
+      console.error('[PHONE] Start session error:', err);
       setErrorMsg(err.message || 'Failed to start camera');
+      setCameraDebugStatus('FAILED');
     }
   };
 
@@ -755,6 +913,16 @@ function SnapStudio() {
   };
 
   const stopSession = () => {
+    console.log('[PHONE] Stopping session');
+    if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+    if (mediaCallRef.current) {
+      try { mediaCallRef.current.close(); } catch (e) {}
+      mediaCallRef.current = null;
+    }
+    if (canvasStreamRef.current) {
+      canvasStreamRef.current.getTracks().forEach((t) => t.stop());
+      canvasStreamRef.current = null;
+    }
     if (cameraManagerRef.current) {
       cameraManagerRef.current.stopCamera();
     }
@@ -765,13 +933,12 @@ function SnapStudio() {
       recorderRef.current.stopRecording().catch(console.warn);
       setIsRecording(false);
     }
-    if (broadcastChannelRef.current) {
-      try {
-        broadcastChannelRef.current.postMessage({ type: 'SNAP_STREAM_CLOSED' });
-      } catch (e) {}
-    }
 
     setFps(0);
+    setCameraDebugStatus('IDLE');
+    setCanvasDebugStatus('IDLE');
+    setCanvasStreamStatus('MISSING');
+    setMediaCallStatus('IDLE');
   };
 
   const capturePhoto = () => {
@@ -790,7 +957,7 @@ function SnapStudio() {
       link.click();
       document.body.removeChild(link);
 
-      // 2. Synchronize to Laptop
+      // 2. Synchronize to Laptop over DataChannel & BroadcastChannel
       const snapshotPayload = {
         type: 'REMOTE_SNAPSHOT',
         image: snapshot,
@@ -803,9 +970,9 @@ function SnapStudio() {
         broadcastChannelRef.current.postMessage(snapshotPayload);
       }
 
-      if (activeConnRef.current && activeConnRef.current.open) {
+      if (dataConnRef.current && dataConnRef.current.open) {
         try {
-          activeConnRef.current.send(snapshotPayload);
+          dataConnRef.current.send(snapshotPayload);
         } catch (e) {}
       }
     }
@@ -945,6 +1112,29 @@ function SnapStudio() {
         gap: '12px'
       }}>
         
+        {/* On-Screen Diagnostic Debug Panel */}
+        <div style={{
+          width: '100%',
+          backgroundColor: '#0c0d14',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          borderRadius: '16px',
+          padding: '10px 14px',
+          fontSize: '10px',
+          fontFamily: 'monospace'
+        }}>
+          <div style={{ fontWeight: '800', color: '#cbd5e1', marginBottom: '6px', display: 'flex', justifyContent: 'space-between' }}>
+            <span>🛠️ PHONE STREAM DIAGNOSTICS</span>
+            <span style={{ color: '#ec4899' }}>{mediaCallStatus === 'CONNECTED' ? 'STREAMING' : 'OFFLINE'}</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: '6px' }}>
+            <div>Peer: <strong style={{ color: peerDebugStatus === 'READY' ? '#4ade80' : '#f87171' }}>{peerDebugStatus}</strong></div>
+            <div>Camera: <strong style={{ color: cameraDebugStatus === 'READY' ? '#4ade80' : '#94a3b8' }}>{cameraDebugStatus}</strong></div>
+            <div>AR Canvas: <strong style={{ color: canvasDebugStatus === 'READY' ? '#4ade80' : '#94a3b8' }}>{canvasDebugStatus}</strong></div>
+            <div>Canvas Stream: <strong style={{ color: canvasStreamStatus === 'LIVE' ? '#4ade80' : '#f87171' }}>{canvasStreamStatus}</strong></div>
+            <div>Media Call: <strong style={{ color: mediaCallStatus === 'CONNECTED' ? '#4ade80' : mediaCallStatus === 'CONNECTING' ? '#facc15' : '#94a3b8' }}>{mediaCallStatus}</strong></div>
+          </div>
+        </div>
+
         {/* Camera Viewfinder */}
         <div style={{
           position: 'relative',
