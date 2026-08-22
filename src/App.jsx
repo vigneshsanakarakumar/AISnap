@@ -40,18 +40,18 @@ class ErrorBoundary extends Component {
 }
 
 const CUTE_LENSES = [
-  { id: 'dog_lens', name: 'Puppy', icon: '🐶', theme: '#f59e0b', css: 'contrast(105%) brightness(105%)', overlay: 'dog' },
-  { id: 'cat_lens', name: 'Kitty', icon: '🐱', theme: '#ec4899', css: 'contrast(110%) saturate(125%)', overlay: 'cat' },
-  { id: 'bunny_lens', name: 'Bunny', icon: '🐰', theme: '#f472b6', css: 'brightness(110%) contrast(105%)', overlay: 'bunny' },
-  { id: 'sakura_crown', name: 'Sakura', icon: '🌸', theme: '#fb7185', css: 'saturate(130%) brightness(105%)', overlay: 'sakura' },
-  { id: 'star_crown', name: 'Tiara', icon: '👑', theme: '#eab308', css: 'brightness(110%) contrast(110%)', overlay: 'crown' },
-  { id: 'cyber_visor', name: 'Visor', icon: '🕶️', theme: '#38bdf8', css: 'contrast(120%)', overlay: 'visor' },
-  { id: 'pop_comic', name: 'Comic', icon: '💥', theme: '#a855f7', css: 'saturate(250%) contrast(140%) brightness(105%)', overlay: 'dots' },
+  { id: 'dog_lens', name: 'Puppy', icon: '🐶', theme: '#f59e0b', css: 'contrast(108%) brightness(106%)', overlay: 'dog' },
+  { id: 'cat_lens', name: 'Kitty', icon: '🐱', theme: '#ec4899', css: 'contrast(112%) saturate(130%)', overlay: 'cat' },
+  { id: 'bunny_lens', name: 'Bunny', icon: '🐰', theme: '#f472b6', css: 'brightness(110%) contrast(106%)', overlay: 'bunny' },
+  { id: 'sakura_crown', name: 'Sakura', icon: '🌸', theme: '#fb7185', css: 'saturate(135%) brightness(108%)', overlay: 'sakura' },
+  { id: 'star_crown', name: 'Tiara', icon: '👑', theme: '#eab308', css: 'brightness(112%) contrast(110%)', overlay: 'crown' },
+  { id: 'cyber_visor', name: 'Visor', icon: '🕶️', theme: '#38bdf8', css: 'contrast(125%) saturate(120%)', overlay: 'visor' },
+  { id: 'pop_comic', name: 'Comic', icon: '💥', theme: '#a855f7', css: 'saturate(260%) contrast(140%) brightness(105%)', overlay: 'dots' },
   { id: 'silver_ai', name: 'Chrome', icon: '🤖', theme: '#94a3b8', css: 'grayscale(100%) contrast(160%) brightness(110%)', overlay: 'neural' },
   { id: 'raw', name: 'Original', icon: '📷', theme: '#64748b', css: 'none', overlay: null }
 ];
 
-// Dedicated Receiver Portal (/aa) with Internet Cloud WebRTC Support
+// Dedicated Receiver Portal (/aa)
 function DedicatedReceiver() {
   const [remoteImage, setRemoteImage] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
@@ -69,7 +69,6 @@ function DedicatedReceiver() {
   const connectTimeoutRef = useRef(null);
 
   useEffect(() => {
-    // 1. Setup Local BroadcastChannel (for same-device tabs)
     try {
       if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
         const channel = new BroadcastChannel('snap_filter_broadcast_stream');
@@ -99,7 +98,6 @@ function DedicatedReceiver() {
       console.warn('BroadcastChannel fallback:', e);
     }
 
-    // 2. Setup WebRTC PeerJS for Cross-Device Internet Streaming
     const receiverPeerId = `aisnap-rx-${Math.random().toString(36).substring(2, 7)}`;
     const peer = new Peer(receiverPeerId, {
       debug: 1,
@@ -113,7 +111,7 @@ function DedicatedReceiver() {
 
     peerRef.current = peer;
 
-    peer.on('open', (id) => {
+    peer.on('open', () => {
       setConnectionState('Cloud Ready. Searching for Studio Stream...');
       connectToStudio(peer);
     });
@@ -144,7 +142,6 @@ function DedicatedReceiver() {
     });
 
     peer.on('error', (err) => {
-      console.warn('Peer error:', err);
       if (err.type === 'peer-unavailable') {
         setConnectionState('Studio Offline. Waiting for host to start...');
         connectTimeoutRef.current = setTimeout(() => connectToStudio(peer), 3500);
@@ -182,7 +179,7 @@ function DedicatedReceiver() {
         }
       });
     } catch (e) {
-      console.warn('Connect to studio error:', e);
+      console.warn('Connect error:', e);
     }
   };
 
@@ -206,7 +203,6 @@ function DedicatedReceiver() {
       backgroundColor: '#060609',
       color: '#f8fafc'
     }}>
-      {/* Top Header */}
       <header style={{
         padding: '16px 20px',
         backgroundColor: 'rgba(15, 15, 20, 0.85)',
@@ -270,7 +266,6 @@ function DedicatedReceiver() {
         </div>
       </header>
 
-      {/* Main Viewport */}
       <main style={{ flex: 1, padding: '16px', maxWidth: '720px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
         <div style={{
           backgroundColor: '#0f0f14',
@@ -368,8 +363,13 @@ function SnapStudio() {
   const frameCountRef = useRef(0);
   const lastFpsUpdateRef = useRef(Date.now());
 
+  // REF FOR ACTIVE FILTER to fix React closure state bug during live rendering
+  const activeFilterRef = useRef(activeFilter);
   useEffect(() => {
-    // 1. Setup Local BroadcastChannel (for same-device tabs)
+    activeFilterRef.current = activeFilter;
+  }, [activeFilter]);
+
+  useEffect(() => {
     try {
       if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
         broadcastChannelRef.current = new BroadcastChannel('snap_filter_broadcast_stream');
@@ -378,7 +378,6 @@ function SnapStudio() {
       console.warn('BroadcastChannel error:', e);
     }
 
-    // 2. Setup PeerJS Cloud Host for Cross-Device Internet Streaming
     const hostPeer = new Peer(DEFAULT_ROOM_ID, {
       debug: 1,
       config: {
@@ -396,7 +395,6 @@ function SnapStudio() {
     });
 
     hostPeer.on('connection', (conn) => {
-      console.log('Receiver connected:', conn.peer);
       connectedClientsRef.current.push(conn);
       setCloudPeersCount(connectedClientsRef.current.length);
 
@@ -417,10 +415,6 @@ function SnapStudio() {
       }
     });
 
-    hostPeer.on('error', (err) => {
-      console.warn('Host peer notice:', err);
-    });
-
     return () => {
       if (broadcastChannelRef.current) {
         try { broadcastChannelRef.current.close(); } catch (e) {}
@@ -434,7 +428,6 @@ function SnapStudio() {
     };
   }, []);
 
-  // Single-step Start: Starts Camera AND automatically starts broadcasting live
   const startSession = async (facing = facingMode) => {
     setErrorMsg(null);
     try {
@@ -452,7 +445,7 @@ function SnapStudio() {
       });
 
       setStream(mediaStream);
-      setIsBroadcasting(true); // Automatically broadcast immediately once session starts
+      setIsBroadcasting(true);
 
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
@@ -502,7 +495,7 @@ function SnapStudio() {
       try {
         const imageURL = canvasRef.current.toDataURL('image/png');
         const link = document.createElement('a');
-        link.download = `SnapAI_${activeFilter.name}_${Date.now()}.png`;
+        link.download = `SnapAI_${activeFilterRef.current.name}_${Date.now()}.png`;
         link.href = imageURL;
         link.click();
       } catch (e) {
@@ -521,15 +514,18 @@ function SnapStudio() {
         canvas.width = video.videoWidth || 640;
         canvas.height = video.videoHeight || 480;
 
+        // Dynamic active filter read from ref (fixes lens switching instantly)
+        const currentLens = activeFilterRef.current;
+
         ctx.save();
-        if (activeFilter.css && activeFilter.css !== 'none') {
-          ctx.filter = activeFilter.css;
+        if (currentLens.css && currentLens.css !== 'none') {
+          ctx.filter = currentLens.css;
         }
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         ctx.restore();
 
-        // Draw Cute Lenses
-        drawCuteLensOverlay(ctx, canvas.width, canvas.height, activeFilter.overlay);
+        // Draw Ultra-Cute & Realistic AR Snap Lenses
+        drawRealisticSnapLens(ctx, canvas.width, canvas.height, currentLens.overlay);
 
         frameCountRef.current += 1;
         const now = Date.now();
@@ -546,17 +542,15 @@ function SnapStudio() {
             const payload = {
               type: 'SNAP_FRAME',
               frame: frameData,
-              filterName: activeFilter.name,
-              filterIcon: activeFilter.icon,
+              filterName: currentLens.name,
+              filterIcon: currentLens.icon,
               timestamp: new Date().toLocaleTimeString()
             };
 
-            // 1. Local BroadcastChannel
             if (broadcastChannelRef.current) {
               broadcastChannelRef.current.postMessage(payload);
             }
 
-            // 2. Internet PeerJS DataChannels
             if (connectedClientsRef.current.length > 0) {
               connectedClientsRef.current.forEach((conn) => {
                 if (conn.open) {
@@ -564,8 +558,8 @@ function SnapStudio() {
                     conn.send({
                       type: 'FRAME_DATA',
                       frame: frameData,
-                      filterName: activeFilter.name,
-                      filterIcon: activeFilter.icon,
+                      filterName: currentLens.name,
+                      filterIcon: currentLens.icon,
                       timestamp: payload.timestamp
                     });
                   } catch (e) {}
@@ -575,7 +569,7 @@ function SnapStudio() {
 
             lastFrameTimeRef.current = now;
           } catch (e) {
-            console.warn('Broadcast frame error:', e);
+            console.warn('Broadcast error:', e);
           }
         }
       }
@@ -594,240 +588,389 @@ function SnapStudio() {
     }
   };
 
-  const drawCuteLensOverlay = (ctx, width, height, overlayType) => {
+  // Ultra Realistic Snapchat-Grade AR Filter Renderer
+  const drawRealisticSnapLens = (ctx, width, height, overlayType) => {
     const cx = width / 2;
     const cy = height / 2;
-    const time = Date.now() / 300;
+    const time = Date.now() / 350;
 
     if (overlayType === 'dog') {
       ctx.save();
-      ctx.fillStyle = '#b45309';
+      const earSwing = Math.sin(time) * 0.05;
+
+      // --- Left Puppy Ear ---
+      ctx.save();
+      ctx.translate(cx - (width * 0.22), cy - (height * 0.28));
+      ctx.rotate(-0.35 + earSwing);
+      
+      // Outer brown gradient
+      const leftEarGrad = ctx.createLinearGradient(-30, -70, 30, 70);
+      leftEarGrad.addColorStop(0, '#92400e');
+      leftEarGrad.addColorStop(0.5, '#b45309');
+      leftEarGrad.addColorStop(1, '#78350f');
+      ctx.fillStyle = leftEarGrad;
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+      ctx.shadowBlur = 12;
       ctx.beginPath();
-      ctx.ellipse(cx - (width * 0.22), cy - (height * 0.28), width * 0.07, height * 0.16, -0.38, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#fbcfe8';
-      ctx.beginPath();
-      ctx.ellipse(cx - (width * 0.22), cy - (height * 0.27), width * 0.04, height * 0.11, -0.38, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, width * 0.075, height * 0.17, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      ctx.fillStyle = '#b45309';
+      // Inner pink ear
+      ctx.shadowBlur = 0;
+      const leftPinkGrad = ctx.createLinearGradient(0, -40, 0, 40);
+      leftPinkGrad.addColorStop(0, '#fbcfe8');
+      leftPinkGrad.addColorStop(1, '#f472b6');
+      ctx.fillStyle = leftPinkGrad;
       ctx.beginPath();
-      ctx.ellipse(cx + (width * 0.22), cy - (height * 0.28), width * 0.07, height * 0.16, 0.38, 0, Math.PI * 2);
+      ctx.ellipse(0, 5, width * 0.042, height * 0.11, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = '#fbcfe8';
+      ctx.restore();
+
+      // --- Right Puppy Ear ---
+      ctx.save();
+      ctx.translate(cx + (width * 0.22), cy - (height * 0.28));
+      ctx.rotate(0.35 - earSwing);
+
+      const rightEarGrad = ctx.createLinearGradient(-30, -70, 30, 70);
+      rightEarGrad.addColorStop(0, '#92400e');
+      rightEarGrad.addColorStop(0.5, '#b45309');
+      rightEarGrad.addColorStop(1, '#78350f');
+      ctx.fillStyle = rightEarGrad;
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+      ctx.shadowBlur = 12;
       ctx.beginPath();
-      ctx.ellipse(cx + (width * 0.22), cy - (height * 0.27), width * 0.04, height * 0.11, 0.38, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, width * 0.075, height * 0.17, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      ctx.fillStyle = '#18181b';
+      ctx.shadowBlur = 0;
+      const rightPinkGrad = ctx.createLinearGradient(0, -40, 0, 40);
+      rightPinkGrad.addColorStop(0, '#fbcfe8');
+      rightPinkGrad.addColorStop(1, '#f472b6');
+      ctx.fillStyle = rightPinkGrad;
       ctx.beginPath();
-      drawRoundRect(ctx, cx - 28, cy - 12, 56, 38, 16);
+      ctx.ellipse(0, 5, width * 0.042, height * 0.11, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // --- Realistic Puppy Nose ---
+      ctx.save();
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+      ctx.shadowBlur = 10;
+      ctx.shadowOffsetY = 4;
+      const noseGrad = ctx.createRadialGradient(cx, cy - 8, 4, cx, cy - 8, 30);
+      noseGrad.addColorStop(0, '#3f3f46');
+      noseGrad.addColorStop(0.7, '#18181b');
+      noseGrad.addColorStop(1, '#09090b');
+      ctx.fillStyle = noseGrad;
+      ctx.beginPath();
+      drawRoundRect(ctx, cx - 28, cy - 14, 56, 40, 18);
       ctx.fill();
 
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+      // Nose Shine
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
       ctx.beginPath();
-      ctx.arc(cx - 10, cy - 2, 6, 0, Math.PI * 2);
+      ctx.ellipse(cx - 10, cy - 5, 8, 4, -0.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // --- Animated Puppy Tongue ---
+      ctx.save();
+      const tongueBounce = Math.sin(time * 1.5) * 4;
+      const tongueGrad = ctx.createLinearGradient(0, cy + 28, 0, cy + 76 + tongueBounce);
+      tongueGrad.addColorStop(0, '#fb7185');
+      tongueGrad.addColorStop(1, '#e11d48');
+      ctx.fillStyle = tongueGrad;
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      drawRoundRect(ctx, cx - 18, cy + 28, 36, 48 + tongueBounce, 18);
       ctx.fill();
 
-      ctx.fillStyle = '#f43f5e';
-      ctx.beginPath();
-      drawRoundRect(ctx, cx - 18, cy + 30, 36, 46, 18);
-      ctx.fill();
-      ctx.strokeStyle = '#be123c';
+      // Tongue Center Crease
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = '#9f1239';
       ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.moveTo(cx, cy + 34);
-      ctx.lineTo(cx, cy + 62);
+      ctx.moveTo(cx, cy + 32);
+      ctx.lineTo(cx, cy + 62 + tongueBounce);
       ctx.stroke();
+      ctx.restore();
 
       ctx.restore();
     } else if (overlayType === 'cat') {
       ctx.save();
-      ctx.fillStyle = '#1e1b4b';
+      
+      // Kitty Ear Twitch Animation
+      const earTwitch = Math.sin(time * 2) > 0.8 ? Math.sin(time * 20) * 0.06 : 0;
+
+      // Left Ear
+      ctx.save();
+      ctx.translate(cx - (width * 0.16), cy - (height * 0.24));
+      ctx.rotate(-0.15 + earTwitch);
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+      ctx.shadowBlur = 10;
+      ctx.fillStyle = '#0f172a';
       ctx.strokeStyle = '#f472b6';
-      ctx.lineWidth = 3.5;
-
+      ctx.lineWidth = 4;
       ctx.beginPath();
-      ctx.moveTo(cx - (width * 0.22), cy - (height * 0.16));
-      ctx.lineTo(cx - (width * 0.16), cy - (height * 0.36));
-      ctx.lineTo(cx - (width * 0.07), cy - (height * 0.18));
+      ctx.moveTo(-45, 50);
+      ctx.lineTo(0, -65);
+      ctx.lineTo(45, 40);
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
 
+      // Inner Ear Pink
+      ctx.shadowBlur = 0;
       ctx.fillStyle = '#f472b6';
       ctx.beginPath();
-      ctx.moveTo(cx - (width * 0.2), cy - (height * 0.17));
-      ctx.lineTo(cx - (width * 0.16), cy - (height * 0.31));
-      ctx.lineTo(cx - (width * 0.09), cy - (height * 0.18));
+      ctx.moveTo(-30, 45);
+      ctx.lineTo(0, -45);
+      ctx.lineTo(30, 38);
       ctx.closePath();
       ctx.fill();
+      ctx.restore();
 
-      ctx.fillStyle = '#1e1b4b';
+      // Right Ear
+      ctx.save();
+      ctx.translate(cx + (width * 0.16), cy - (height * 0.24));
+      ctx.rotate(0.15 - earTwitch);
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+      ctx.shadowBlur = 10;
+      ctx.fillStyle = '#0f172a';
+      ctx.strokeStyle = '#f472b6';
+      ctx.lineWidth = 4;
       ctx.beginPath();
-      ctx.moveTo(cx + (width * 0.22), cy - (height * 0.16));
-      ctx.lineTo(cx + (width * 0.16), cy - (height * 0.36));
-      ctx.lineTo(cx + (width * 0.07), cy - (height * 0.18));
+      ctx.moveTo(45, 50);
+      ctx.lineTo(0, -65);
+      ctx.lineTo(-45, 40);
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
 
+      ctx.shadowBlur = 0;
       ctx.fillStyle = '#f472b6';
       ctx.beginPath();
-      ctx.moveTo(cx + (width * 0.2), cy - (height * 0.17));
-      ctx.lineTo(cx + (width * 0.16), cy - (height * 0.31));
-      ctx.lineTo(cx + (width * 0.09), cy - (height * 0.18));
+      ctx.moveTo(30, 45);
+      ctx.lineTo(0, -45);
+      ctx.lineTo(-30, 38);
       ctx.closePath();
       ctx.fill();
+      ctx.restore();
 
-      ctx.fillStyle = '#f472b6';
+      // Cute Pink Kitty Nose
+      ctx.save();
+      ctx.fillStyle = '#fb7185';
+      ctx.shadowColor = 'rgba(251, 113, 133, 0.6)';
+      ctx.shadowBlur = 8;
       ctx.beginPath();
-      ctx.moveTo(cx - 16, cy - 10);
-      ctx.lineTo(cx + 16, cy - 10);
-      ctx.lineTo(cx, cy + 12);
+      ctx.moveTo(cx - 16, cy - 8);
+      ctx.lineTo(cx + 16, cy - 8);
+      ctx.lineTo(cx, cy + 14);
       ctx.closePath();
       ctx.fill();
+      ctx.restore();
 
+      // Kitty Cheeks Blush
+      ctx.fillStyle = 'rgba(244, 114, 182, 0.3)';
+      ctx.beginPath();
+      ctx.ellipse(cx - 85, cy + 15, 26, 16, 0, 0, Math.PI * 2);
+      ctx.ellipse(cx + 85, cy + 15, 26, 16, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Whiskers with Glow
       ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 3.5;
       ctx.lineCap = 'round';
+      ctx.shadowColor = 'rgba(255, 255, 255, 0.8)';
+      ctx.shadowBlur = 6;
+
       ctx.beginPath();
-      ctx.moveTo(cx - 35, cy - 2);
-      ctx.lineTo(cx - 120, cy - 15);
-      ctx.moveTo(cx - 35, cy + 6);
-      ctx.lineTo(cx - 125, cy + 10);
-      ctx.moveTo(cx - 35, cy + 14);
-      ctx.lineTo(cx - 115, cy + 30);
+      ctx.moveTo(cx - 35, cy);
+      ctx.lineTo(cx - 130, cy - 14);
+      ctx.moveTo(cx - 35, cy + 8);
+      ctx.lineTo(cx - 135, cy + 10);
+      ctx.moveTo(cx - 35, cy + 16);
+      ctx.lineTo(cx - 125, cy + 32);
       ctx.stroke();
 
       ctx.beginPath();
-      ctx.moveTo(cx + 35, cy - 2);
-      ctx.lineTo(cx + 120, cy - 15);
-      ctx.moveTo(cx + 35, cy + 6);
-      ctx.lineTo(cx + 125, cy + 10);
-      ctx.moveTo(cx + 35, cy + 14);
-      ctx.lineTo(cx + 115, cy + 30);
+      ctx.moveTo(cx + 35, cy);
+      ctx.lineTo(cx + 130, cy - 14);
+      ctx.moveTo(cx + 35, cy + 8);
+      ctx.lineTo(cx + 135, cy + 10);
+      ctx.moveTo(cx + 35, cy + 16);
+      ctx.lineTo(cx + 125, cy + 32);
       ctx.stroke();
 
       ctx.restore();
     } else if (overlayType === 'bunny') {
       ctx.save();
+      const earWiggle = Math.sin(time * 1.8) * 0.04;
+
+      // Left Bunny Ear
+      ctx.save();
+      ctx.translate(cx - (width * 0.13), cy - (height * 0.33));
+      ctx.rotate(-0.12 + earWiggle);
       ctx.fillStyle = '#ffffff';
       ctx.strokeStyle = '#f472b6';
-      ctx.lineWidth = 3;
-
+      ctx.lineWidth = 3.5;
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+      ctx.shadowBlur = 10;
       ctx.beginPath();
-      ctx.ellipse(cx - (width * 0.14), cy - (height * 0.34), width * 0.06, height * 0.2, -0.15, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, width * 0.065, height * 0.22, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
+
+      ctx.shadowBlur = 0;
       ctx.fillStyle = '#fbcfe8';
       ctx.beginPath();
-      ctx.ellipse(cx - (width * 0.14), cy - (height * 0.33), width * 0.035, height * 0.14, -0.15, 0, Math.PI * 2);
+      ctx.ellipse(0, 5, width * 0.038, height * 0.15, 0, 0, Math.PI * 2);
       ctx.fill();
+      ctx.restore();
 
+      // Right Bunny Ear
+      ctx.save();
+      ctx.translate(cx + (width * 0.13), cy - (height * 0.33));
+      ctx.rotate(0.12 - earWiggle);
       ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = '#f472b6';
+      ctx.lineWidth = 3.5;
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+      ctx.shadowBlur = 10;
       ctx.beginPath();
-      ctx.ellipse(cx + (width * 0.14), cy - (height * 0.34), width * 0.06, height * 0.2, 0.15, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, width * 0.065, height * 0.22, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
+
+      ctx.shadowBlur = 0;
       ctx.fillStyle = '#fbcfe8';
       ctx.beginPath();
-      ctx.ellipse(cx + (width * 0.14), cy - (height * 0.33), width * 0.035, height * 0.14, 0.15, 0, Math.PI * 2);
+      ctx.ellipse(0, 5, width * 0.038, height * 0.15, 0, 0, Math.PI * 2);
       ctx.fill();
+      ctx.restore();
 
+      // Bunny Twitchy Nose
       ctx.fillStyle = '#fb7185';
       ctx.beginPath();
-      ctx.ellipse(cx, cy + 4, 14, 10, 0, 0, Math.PI * 2);
+      ctx.ellipse(cx, cy + 4, 15, 11, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      ctx.fillStyle = 'rgba(251, 113, 133, 0.35)';
+      // Bunny Rosy Cheeks
+      ctx.fillStyle = 'rgba(251, 113, 133, 0.4)';
       ctx.beginPath();
-      ctx.ellipse(cx - 75, cy + 20, 24, 14, 0, 0, Math.PI * 2);
-      ctx.ellipse(cx + 75, cy + 20, 24, 14, 0, 0, Math.PI * 2);
+      ctx.ellipse(cx - 75, cy + 20, 26, 16, 0, 0, Math.PI * 2);
+      ctx.ellipse(cx + 75, cy + 20, 26, 16, 0, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.restore();
     } else if (overlayType === 'sakura') {
       ctx.save();
-      const crownY = cy - (height * 0.3) + Math.sin(time) * 6;
+      const crownY = cy - (height * 0.28) + Math.sin(time) * 6;
 
+      // Realistic Sakura Blossoms with 5 petals each
       for (let i = -3; i <= 3; i++) {
-        const flowerX = cx + (i * (width * 0.08));
-        const flowerY = crownY + Math.abs(i) * 8;
+        const flowerX = cx + (i * (width * 0.082));
+        const flowerY = crownY + Math.abs(i) * 9;
         
+        ctx.save();
+        ctx.translate(flowerX, flowerY);
+        ctx.rotate(time * 0.3 + (i * 0.5));
+        
+        // 5 Heart-shaped petals
         ctx.fillStyle = i % 2 === 0 ? '#fbcfe8' : '#f472b6';
+        ctx.shadowColor = 'rgba(244, 114, 182, 0.5)';
+        ctx.shadowBlur = 8;
         for (let p = 0; p < 5; p++) {
-          const angle = (p * Math.PI * 2) / 5 + (time * 0.5);
-          const px = flowerX + Math.cos(angle) * 14;
-          const py = flowerY + Math.sin(angle) * 14;
+          const angle = (p * Math.PI * 2) / 5;
           ctx.beginPath();
-          ctx.arc(px, py, 9, 0, Math.PI * 2);
+          ctx.arc(Math.cos(angle) * 14, Math.sin(angle) * 14, 10, 0, Math.PI * 2);
           ctx.fill();
         }
-        ctx.fillStyle = '#fbbf24';
+
+        // Flower Center
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#fef08a';
         ctx.beginPath();
-        ctx.arc(flowerX, flowerY, 6, 0, Math.PI * 2);
+        ctx.arc(0, 0, 6, 0, Math.PI * 2);
         ctx.fill();
+        ctx.restore();
       }
 
-      for (let s = 0; s < 6; s++) {
-        const sx = cx + Math.cos(time + s * 1.1) * (width * 0.3);
-        const sy = crownY + Math.sin(time * 1.5 + s) * 35;
+      // Floating Sakura Petals
+      for (let s = 0; s < 7; s++) {
+        const sx = cx + Math.cos(time * 0.8 + s * 1.1) * (width * 0.32);
+        const sy = crownY + Math.sin(time * 1.2 + s) * 42;
         ctx.fillStyle = '#fde047';
+        ctx.shadowColor = '#fde047';
+        ctx.shadowBlur = 8;
         ctx.beginPath();
-        ctx.arc(sx, sy, 3 + Math.sin(time * 2 + s) * 2, 0, Math.PI * 2);
+        ctx.arc(sx, sy, 3.5 + Math.sin(time * 2 + s) * 2, 0, Math.PI * 2);
         ctx.fill();
       }
 
       ctx.restore();
     } else if (overlayType === 'crown') {
       ctx.save();
-      const floatY = cy - (height * 0.3) + Math.sin(time) * 6;
+      const floatY = cy - (height * 0.28) + Math.sin(time) * 6;
 
-      ctx.fillStyle = 'rgba(234, 179, 8, 0.92)';
-      ctx.strokeStyle = '#fef08a';
-      ctx.lineWidth = 3;
+      // Golden Crown Gradient
+      const goldGrad = ctx.createLinearGradient(0, floatY - 80, 0, floatY);
+      goldGrad.addColorStop(0, '#fef08a');
+      goldGrad.addColorStop(0.5, '#eab308');
+      goldGrad.addColorStop(1, '#ca8a04');
+      ctx.fillStyle = goldGrad;
+      ctx.strokeStyle = '#fef9c3';
+      ctx.lineWidth = 3.5;
+      ctx.shadowColor = 'rgba(234, 179, 8, 0.7)';
+      ctx.shadowBlur = 14;
 
       ctx.beginPath();
-      ctx.moveTo(cx - 90, floatY);
-      ctx.lineTo(cx - 80, floatY - 50);
-      ctx.lineTo(cx - 40, floatY - 20);
-      ctx.lineTo(cx, floatY - 75);
-      ctx.lineTo(cx + 40, floatY - 20);
-      ctx.lineTo(cx + 80, floatY - 50);
-      ctx.lineTo(cx + 90, floatY);
+      ctx.moveTo(cx - 95, floatY);
+      ctx.lineTo(cx - 85, floatY - 55);
+      ctx.lineTo(cx - 45, floatY - 22);
+      ctx.lineTo(cx, floatY - 82);
+      ctx.lineTo(cx + 45, floatY - 22);
+      ctx.lineTo(cx + 85, floatY - 55);
+      ctx.lineTo(cx + 95, floatY);
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
 
+      // Sparkling Jewels
+      ctx.shadowBlur = 0;
       ctx.fillStyle = '#ec4899';
       ctx.beginPath();
-      ctx.arc(cx, floatY - 60, 8, 0, Math.PI * 2);
+      ctx.arc(cx, floatY - 65, 9, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.fillStyle = '#38bdf8';
       ctx.beginPath();
-      ctx.arc(cx - 70, floatY - 40, 6, 0, Math.PI * 2);
-      ctx.arc(cx + 70, floatY - 40, 6, 0, Math.PI * 2);
+      ctx.arc(cx - 72, floatY - 44, 7, 0, Math.PI * 2);
+      ctx.arc(cx + 72, floatY - 44, 7, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.restore();
     } else if (overlayType === 'visor') {
       ctx.save();
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
       ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 2.5;
+      ctx.lineWidth = 3;
+      ctx.shadowColor = '#38bdf8';
+      ctx.shadowBlur = 12;
 
       ctx.beginPath();
-      drawRoundRect(ctx, cx - 130, cy - 35, 260, 48, 8);
+      drawRoundRect(ctx, cx - 130, cy - 35, 260, 50, 10);
       ctx.fill();
       ctx.stroke();
 
+      // Glowing Neon Beam
       ctx.strokeStyle = '#06b6d4';
       ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.moveTo(cx - 110, cy - 11);
-      ctx.lineTo(cx + 110, cy - 11);
+      ctx.moveTo(cx - 110, cy - 10);
+      ctx.lineTo(cx + 110, cy - 10);
       ctx.stroke();
 
       ctx.restore();
@@ -1031,7 +1174,7 @@ function SnapStudio() {
                 Can we start?
               </div>
               <p style={{ fontSize: '12px', color: '#94a3b8', marginTop: '6px', maxWidth: '260px', margin: '6px auto 0 auto' }}>
-                Tap "shall we start cam  for <strong>ar lens?</strong>
+                Tap "shall we start cam for <strong>ar lens?</strong>"
               </p>
             </div>
           )}
@@ -1085,7 +1228,7 @@ function SnapStudio() {
                     justifyContent: 'center',
                     padding: '8px 14px',
                     borderRadius: '16px',
-                    backgroundColor: isSelected ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.04)',
+                    backgroundColor: isSelected ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.04)',
                     border: isSelected ? `2px solid ${lens.theme}` : '1px solid rgba(255, 255, 255, 0.08)',
                     cursor: 'pointer',
                     scrollSnapAlign: 'center',
@@ -1110,7 +1253,7 @@ function SnapStudio() {
           </div>
         </div>
 
-        {/* Single-Step Start / Controls Action Bar */}
+        {/* Action Bar */}
         <div style={{ width: '100%', marginTop: 'auto', paddingBottom: '8px' }}>
           {!stream ? (
             <button
