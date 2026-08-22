@@ -25,11 +25,11 @@ export class LandmarkSmoother {
       const cur = currentLandmarks[i];
       const prev = this.previous[i];
 
-      // High-performance responsive smoothing for 60+ FPS
+      // Ultra-responsive high precision smoothing for real-time 60-120 FPS
       const dx = cur.x - prev.x;
       const dy = cur.y - prev.y;
       const dist = Math.hypot(dx, dy);
-      const adaptiveFactor = dist > 0.04 ? 0.15 : dist > 0.01 ? 0.35 : this.factor;
+      const adaptiveFactor = dist > 0.02 ? 0.04 : dist > 0.005 ? 0.18 : 0.42;
 
       const sx = prev.x * adaptiveFactor + cur.x * (1 - adaptiveFactor);
       const sy = prev.y * adaptiveFactor + cur.y * (1 - adaptiveFactor);

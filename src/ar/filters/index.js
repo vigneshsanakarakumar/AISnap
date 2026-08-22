@@ -1,25 +1,29 @@
 /**
- * AR Filter Registry — All 12+ Original Filter Engine Implementations
+ * AR Filter Registry — Complete Modular AR Filter Engine
  */
 
-import { OriginalFilter } from './OriginalFilter.js';
-import { SoftGlowFilter } from './SoftGlowFilter.js';
-import { NeonEyesFilter } from './NeonEyesFilter.js';
-import { VirtualGlassesFilter } from './VirtualGlassesFilter.js';
-import { SparkleFaceFilter } from './SparkleFaceFilter.js';
-import { GoldenHourFilter } from './GoldenHourFilter.js';
-import { CyberHUDFilter } from './CyberHUDFilter.js';
-import { CartoonOutlineFilter } from './CartoonOutlineFilter.js';
-import { FloatingHeartsFilter } from './FloatingHeartsFilter.js';
-import { FaceMaskFilter } from './FaceMaskFilter.js';
-import { BackgroundBlurFilter } from './BackgroundBlurFilter.js';
-import { MirrorKaleidoscopeFilter } from './MirrorKaleidoscopeFilter.js';
+import { DesignerNailsFilter } from './DesignerNailsFilter.js';
+import { ARTattooFilter } from './ARTattooFilter.js';
 import { PuppyDogFilter } from './PuppyDogFilter.js';
 import { CuteKittyFilter } from './CuteKittyFilter.js';
 import { BunnyRabbitFilter } from './BunnyRabbitFilter.js';
 import { SakuraCrownFilter } from './SakuraCrownFilter.js';
+import { VirtualGlassesFilter } from './VirtualGlassesFilter.js';
+import { NeonEyesFilter } from './NeonEyesFilter.js';
+import { SparkleFaceFilter } from './SparkleFaceFilter.js';
+import { SoftGlowFilter } from './SoftGlowFilter.js';
+import { GoldenHourFilter } from './GoldenHourFilter.js';
+import { CyberHUDFilter } from './CyberHUDFilter.js';
+import { FaceMaskFilter } from './FaceMaskFilter.js';
+import { CartoonOutlineFilter } from './CartoonOutlineFilter.js';
+import { FloatingHeartsFilter } from './FloatingHeartsFilter.js';
+import { BackgroundBlurFilter } from './BackgroundBlurFilter.js';
+import { MirrorKaleidoscopeFilter } from './MirrorKaleidoscopeFilter.js';
+import { OriginalFilter } from './OriginalFilter.js';
 
 export const ALL_FILTERS = [
+  new DesignerNailsFilter(),
+  new ARTattooFilter(),
   new PuppyDogFilter(),
   new CuteKittyFilter(),
   new BunnyRabbitFilter(),

