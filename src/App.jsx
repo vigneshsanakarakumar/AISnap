@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, Component } from 'react';
 import Peer from 'peerjs';
 
-// Default global room ID for internet streaming
 const DEFAULT_ROOM_ID = 'aisnap-live-cloud-channel';
 
 // Error Boundary
@@ -85,7 +84,6 @@ function DedicatedReceiver() {
               setRemoteFilterIcon(filterIcon || '✨');
               setRemoteTimestamp(timestamp || new Date().toLocaleTimeString());
               setConnectionState('CONNECTED (LOCAL LINK)');
-
               updateFps();
             } else if (type === 'SNAP_STREAM_CLOSED') {
               setRemoteImage(null);
@@ -116,13 +114,12 @@ function DedicatedReceiver() {
     peerRef.current = peer;
 
     peer.on('open', (id) => {
-      setConnectionState('Cloud Signaling Connected. Searching for Studio...');
+      setConnectionState('Cloud Ready. Searching for Studio Stream...');
       connectToStudio(peer);
     });
 
-    // Handle incoming calls or data from Studio
     peer.on('call', (call) => {
-      call.answer(); // Answer with no local stream
+      call.answer();
       call.on('stream', (stream) => {
         setRemoteStream(stream);
         if (videoRef.current) {
@@ -149,9 +146,8 @@ function DedicatedReceiver() {
     peer.on('error', (err) => {
       console.warn('Peer error:', err);
       if (err.type === 'peer-unavailable') {
-        setConnectionState('Studio Offline. Waiting for host to broadcast...');
-        // Retry connection every 4 seconds
-        connectTimeoutRef.current = setTimeout(() => connectToStudio(peer), 4000);
+        setConnectionState('Studio Offline. Waiting for host to start...');
+        connectTimeoutRef.current = setTimeout(() => connectToStudio(peer), 3500);
       }
     });
 
@@ -241,7 +237,7 @@ function DedicatedReceiver() {
               Live Receiver Portal
             </h1>
             <p style={{ fontSize: '11px', color: '#94a3b8', fontFamily: 'monospace' }}>
-              INTERNET CLOUD WEBRTC // /aa
+              ENDPOINT // /aa
             </p>
           </div>
         </div>
@@ -293,7 +289,6 @@ function DedicatedReceiver() {
             alignItems: 'center',
             justifyContent: 'center'
           }}>
-            {/* Direct WebRTC Video stream */}
             <video
               ref={videoRef}
               autoPlay
@@ -307,7 +302,6 @@ function DedicatedReceiver() {
               }}
             />
 
-            {/* Canvas/DataChannel Frame Stream */}
             {!remoteStream && remoteImage && (
               <img
                 src={remoteImage}
@@ -336,7 +330,7 @@ function DedicatedReceiver() {
                   {connectionState}
                 </div>
                 <p style={{ fontSize: '12px', color: '#64748b', marginTop: '6px', maxWidth: '300px', margin: '6px auto 0 auto' }}>
-                  Open the main app on your phone, start camera, and tap <strong>"Start Broadcast"</strong>.
+                  Waiting for live stream from main page
                 </p>
               </div>
             )}
@@ -353,7 +347,7 @@ function DedicatedReceiver() {
   );
 }
 
-// Main Cute SnapStudio with Internet WebRTC Host
+// Main Cute SnapStudio
 function SnapStudio() {
   const [stream, setStream] = useState(null);
   const [activeFilter, setActiveFilter] = useState(CUTE_LENSES[0]);
@@ -401,9 +395,8 @@ function SnapStudio() {
       console.log('PeerJS Host Ready on Cloud:', id);
     });
 
-    // Accept incoming DataChannel connections from receivers anywhere in the world
     hostPeer.on('connection', (conn) => {
-      console.log('Receiver connected from internet:', conn.peer);
+      console.log('Receiver connected:', conn.peer);
       connectedClientsRef.current.push(conn);
       setCloudPeersCount(connectedClientsRef.current.length);
 
@@ -417,7 +410,6 @@ function SnapStudio() {
       });
     });
 
-    // Accept incoming WebRTC MediaCalls
     hostPeer.on('call', (call) => {
       if (canvasRef.current && canvasRef.current.captureStream) {
         const canvasStream = canvasRef.current.captureStream(25);
@@ -426,7 +418,7 @@ function SnapStudio() {
     });
 
     hostPeer.on('error', (err) => {
-      console.warn('Host peer error (may be re-attaching):', err);
+      console.warn('Host peer notice:', err);
     });
 
     return () => {
@@ -442,7 +434,8 @@ function SnapStudio() {
     };
   }, []);
 
-  const startCamera = async (facing = facingMode) => {
+  // Single-step Start: Starts Camera AND automatically starts broadcasting live
+  const startSession = async (facing = facingMode) => {
     setErrorMsg(null);
     try {
       if (stream) {
@@ -459,6 +452,8 @@ function SnapStudio() {
       });
 
       setStream(mediaStream);
+      setIsBroadcasting(true); // Automatically broadcast immediately once session starts
+
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
         videoRef.current.play().catch((e) => console.warn('Play error:', e));
@@ -474,11 +469,11 @@ function SnapStudio() {
     const newFacing = facingMode === 'user' ? 'environment' : 'user';
     setFacingMode(newFacing);
     if (stream) {
-      startCamera(newFacing);
+      startSession(newFacing);
     }
   };
 
-  const stopCamera = () => {
+  const stopSession = () => {
     if (stream) {
       stream.getTracks().forEach((track) => {
         try { track.stop(); } catch (e) {}
@@ -544,45 +539,43 @@ function SnapStudio() {
           lastFpsUpdateRef.current = now;
         }
 
-        // Broadcast frames to both Local Tabs and Internet WebRTC Peers
-        if (isBroadcasting) {
-          if (now - lastFrameTimeRef.current > 45) {
-            try {
-              const frameData = canvas.toDataURL('image/jpeg', 0.55);
-              const payload = {
-                type: 'SNAP_FRAME',
-                frame: frameData,
-                filterName: activeFilter.name,
-                filterIcon: activeFilter.icon,
-                timestamp: new Date().toLocaleTimeString()
-              };
+        // Live Frame Sync to Local Tabs & Cloud Peers
+        if (now - lastFrameTimeRef.current > 45) {
+          try {
+            const frameData = canvas.toDataURL('image/jpeg', 0.55);
+            const payload = {
+              type: 'SNAP_FRAME',
+              frame: frameData,
+              filterName: activeFilter.name,
+              filterIcon: activeFilter.icon,
+              timestamp: new Date().toLocaleTimeString()
+            };
 
-              // 1. Local BroadcastChannel
-              if (broadcastChannelRef.current) {
-                broadcastChannelRef.current.postMessage(payload);
-              }
-
-              // 2. Internet PeerJS DataChannels
-              if (connectedClientsRef.current.length > 0) {
-                connectedClientsRef.current.forEach((conn) => {
-                  if (conn.open) {
-                    try {
-                      conn.send({
-                        type: 'FRAME_DATA',
-                        frame: frameData,
-                        filterName: activeFilter.name,
-                        filterIcon: activeFilter.icon,
-                        timestamp: payload.timestamp
-                      });
-                    } catch (e) {}
-                  }
-                });
-              }
-
-              lastFrameTimeRef.current = now;
-            } catch (e) {
-              console.warn('Broadcast frame error:', e);
+            // 1. Local BroadcastChannel
+            if (broadcastChannelRef.current) {
+              broadcastChannelRef.current.postMessage(payload);
             }
+
+            // 2. Internet PeerJS DataChannels
+            if (connectedClientsRef.current.length > 0) {
+              connectedClientsRef.current.forEach((conn) => {
+                if (conn.open) {
+                  try {
+                    conn.send({
+                      type: 'FRAME_DATA',
+                      frame: frameData,
+                      filterName: activeFilter.name,
+                      filterIcon: activeFilter.icon,
+                      timestamp: payload.timestamp
+                    });
+                  } catch (e) {}
+                }
+              });
+            }
+
+            lastFrameTimeRef.current = now;
+          } catch (e) {
+            console.warn('Broadcast frame error:', e);
           }
         }
       }
@@ -914,13 +907,13 @@ function SnapStudio() {
           </div>
         </div>
 
-        {/* Top Badges & Flip Camera */}
+        {/* Top Badges & Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {stream && (
             <>
               <button
                 onClick={flipCamera}
-                title="Flip Camera (Front/Back)"
+                title="Flip Camera"
                 style={{
                   width: '34px',
                   height: '34px',
@@ -1019,26 +1012,26 @@ function SnapStudio() {
           />
 
           {!stream && (
-            <div style={{ textAlign: 'center', padding: '24px', color: '#94a3b8' }}>
+            <div style={{ textAlign: 'center', padding: '28px', color: '#94a3b8' }}>
               <div style={{
-                width: '64px',
-                height: '64px',
+                width: '68px',
+                height: '68px',
                 borderRadius: '50%',
-                background: 'linear-gradient(135deg, rgba(236, 72, 153, 0.15), rgba(168, 85, 247, 0.15))',
+                background: 'linear-gradient(135deg, rgba(236, 72, 153, 0.2), rgba(168, 85, 247, 0.2))',
                 border: '1.5px dashed rgba(255, 255, 255, 0.25)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 margin: '0 auto 14px auto',
-                fontSize: '28px'
+                fontSize: '32px'
               }}>
                 ✨
               </div>
-              <div style={{ fontSize: '16px', fontWeight: '800', color: '#ffffff', letterSpacing: '-0.01em' }}>
-                Camera Offline
+              <div style={{ fontSize: '18px', fontWeight: '800', color: '#ffffff', letterSpacing: '-0.01em' }}>
+                Can we start?
               </div>
-              <p style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
-                Tap the button below to turn on cute AR filters!
+              <p style={{ fontSize: '12px', color: '#94a3b8', marginTop: '6px', maxWidth: '260px', margin: '6px auto 0 auto' }}>
+                Tap "Yes, Start Live Lenses" to activate your camera and stream live to <strong>/aa</strong>
               </p>
             </div>
           )}
@@ -1117,11 +1110,11 @@ function SnapStudio() {
           </div>
         </div>
 
-        {/* Bottom Shutter & Broadcast Action Bar */}
+        {/* Single-Step Start / Controls Action Bar */}
         <div style={{ width: '100%', marginTop: 'auto', paddingBottom: '8px' }}>
           {!stream ? (
             <button
-              onClick={() => startCamera()}
+              onClick={() => startSession()}
               style={{
                 width: '100%',
                 padding: '16px 24px',
@@ -1140,27 +1133,27 @@ function SnapStudio() {
                 gap: '8px'
               }}
             >
-              ✨ Turn On Camera
+              ✨ Yes, Start Live Lenses & Stream
             </button>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
-              <button
-                onClick={() => setIsBroadcasting(!isBroadcasting)}
-                style={{
-                  flex: 1,
-                  padding: '12px 14px',
-                  backgroundColor: isBroadcasting ? '#ec4899' : 'rgba(255, 255, 255, 0.08)',
-                  color: '#ffffff',
-                  border: isBroadcasting ? 'none' : '1px solid rgba(255, 255, 255, 0.15)',
-                  borderRadius: '14px',
-                  cursor: 'pointer',
-                  fontWeight: '700',
-                  fontSize: '12px',
-                  boxShadow: isBroadcasting ? '0 0 16px rgba(236, 72, 153, 0.5)' : 'none'
-                }}
-              >
-                {isBroadcasting ? '📡 Streaming Live' : '📡 Start Broadcast'}
-              </button>
+              <div style={{
+                flex: 1,
+                padding: '12px 14px',
+                backgroundColor: 'rgba(236, 72, 153, 0.15)',
+                border: '1px solid rgba(236, 72, 153, 0.3)',
+                borderRadius: '14px',
+                fontSize: '11px',
+                fontWeight: '700',
+                color: '#f472b6',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px'
+              }}>
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#ec4899', display: 'inline-block' }}></span>
+                Live on /aa
+              </div>
 
               <button
                 onClick={capturePhoto}
@@ -1183,7 +1176,7 @@ function SnapStudio() {
               </button>
 
               <button
-                onClick={stopCamera}
+                onClick={stopSession}
                 style={{
                   flex: 1,
                   padding: '12px 14px',
