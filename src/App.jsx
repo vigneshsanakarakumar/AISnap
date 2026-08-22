@@ -1031,7 +1031,7 @@ function SnapStudio() {
                 Can we start?
               </div>
               <p style={{ fontSize: '12px', color: '#94a3b8', marginTop: '6px', maxWidth: '260px', margin: '6px auto 0 auto' }}>
-                Tap "Yes, Start Live Lenses" to activate your camera and stream live to <strong>/aa</strong>
+                Tap "shall we start cam  for <strong>ar lens?</strong>
               </p>
             </div>
           )}
