@@ -46,7 +46,7 @@ class ErrorBoundary extends Component {
   }
 }
 
-// Dedicated Receiver Portal (/aa) with Dual MediaStream & Lightweight DataChannel
+// Dedicated Receiver Portal (/aa) with Photo Gallery & Download Support
 function DedicatedReceiver() {
   const [remoteImage, setRemoteImage] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
@@ -57,6 +57,8 @@ function DedicatedReceiver() {
   const [isConnected, setIsConnected] = useState(false);
   const [receiverFps, setReceiverFps] = useState(0);
   const [roomCode, setRoomCode] = useState(DEFAULT_CHANNEL);
+  const [savedPhotos, setSavedPhotos] = useState([]);
+  const [newPhotoToast, setNewPhotoToast] = useState(null);
 
   const videoRef = useRef(null);
   const peerRef = useRef(null);
@@ -79,7 +81,7 @@ function DedicatedReceiver() {
 
         channel.onmessage = (event) => {
           try {
-            const { type, frame, filterName, filterIcon, timestamp } = event.data || {};
+            const { type, frame, image, filterName, filterIcon, timestamp } = event.data || {};
             if (type === 'SNAP_FRAME' && frame) {
               setRemoteImage(frame);
               setRemoteFilterName(filterName || 'Filter');
@@ -88,6 +90,8 @@ function DedicatedReceiver() {
               setConnectionState('CONNECTED (SAME-DEVICE SYNC)');
               setIsConnected(true);
               updateFps();
+            } else if (type === 'REMOTE_SNAPSHOT' && image) {
+              handleNewSnapshot({ image, filterName, filterIcon, timestamp });
             } else if (type === 'SNAP_STREAM_CLOSED') {
               setRemoteImage(null);
               setRemoteStream(null);
@@ -124,7 +128,6 @@ function DedicatedReceiver() {
       attemptConnection(peer, targetRoom);
     });
 
-    // Handle Incoming WebRTC Video Stream
     peer.on('call', (call) => {
       call.answer();
       call.on('stream', (stream) => {
@@ -144,11 +147,12 @@ function DedicatedReceiver() {
       }
     });
 
+    // Auto-reconnect heartbeat every 1.5 seconds for instant pairing upon phone reload
     retryIntervalRef.current = setInterval(() => {
       if (peer && !peer.destroyed && !activeConnRef.current?.open) {
         attemptConnection(peer, targetRoom);
       }
-    }, 2500);
+    }, 1500);
 
     return () => {
       if (broadcastChannelRef.current) {
@@ -162,6 +166,14 @@ function DedicatedReceiver() {
       }
     };
   }, []);
+
+  const handleNewSnapshot = (photo) => {
+    setSavedPhotos((prev) => [photo, ...prev]);
+    setNewPhotoToast(photo);
+    setTimeout(() => {
+      setNewPhotoToast(null);
+    }, 6000);
+  };
 
   const attemptConnection = (peer, targetRoom) => {
     if (!peer || peer.destroyed) return;
@@ -190,6 +202,8 @@ function DedicatedReceiver() {
           setIsConnected(true);
           setConnectionState('LIVE CLOUD STREAM');
           updateFps();
+        } else if (data && data.type === 'REMOTE_SNAPSHOT' && data.image) {
+          handleNewSnapshot(data);
         }
       });
 
@@ -216,6 +230,15 @@ function DedicatedReceiver() {
       receiverFrameCountRef.current = 0;
       receiverLastFpsUpdateRef.current = now;
     }
+  };
+
+  const downloadPhoto = (photo) => {
+    const a = document.createElement('a');
+    a.href = photo.image;
+    a.download = `SnapAI_${photo.filterName || 'Photo'}_${Date.now()}.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
   const hasFeed = Boolean(remoteStream || remoteImage);
@@ -302,7 +325,56 @@ function DedicatedReceiver() {
         </div>
       </header>
 
-      <main style={{ flex: 1, padding: '16px', maxWidth: '760px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+      {/* Snapshot Toast Notification */}
+      {newPhotoToast && (
+        <div style={{
+          position: 'fixed',
+          top: '80px',
+          right: '20px',
+          zIndex: 100,
+          backgroundColor: '#1e1e2d',
+          border: '1.5px solid #ec4899',
+          borderRadius: '16px',
+          padding: '12px 18px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          boxShadow: '0 10px 30px rgba(0, 0, 0, 0.8)'
+        }}>
+          <img
+            src={newPhotoToast.image}
+            alt="Snap Preview"
+            style={{ width: '48px', height: '64px', objectFit: 'cover', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.2)' }}
+          />
+          <div>
+            <div style={{ fontSize: '13px', fontWeight: '800', color: '#ffffff' }}>
+              📸 New Photo Snapped on Mobile!
+            </div>
+            <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+              {newPhotoToast.filterIcon} {newPhotoToast.filterName} Lens ({newPhotoToast.timestamp})
+            </div>
+            <button
+              onClick={() => downloadPhoto(newPhotoToast)}
+              style={{
+                marginTop: '6px',
+                padding: '6px 12px',
+                backgroundColor: '#ec4899',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '8px',
+                fontSize: '11px',
+                fontWeight: '700',
+                cursor: 'pointer'
+              }}
+            >
+              💾 Download to Laptop
+            </button>
+          </div>
+        </div>
+      )}
+
+      <main style={{ flex: 1, padding: '16px', maxWidth: '760px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {/* Main Live Viewport */}
         <div style={{
           backgroundColor: '#0f0f14',
           border: '1.5px solid rgba(255, 255, 255, 0.1)',
@@ -314,7 +386,7 @@ function DedicatedReceiver() {
             position: 'relative',
             width: '100%',
             aspectRatio: '3/4',
-            maxHeight: '70vh',
+            maxHeight: '62vh',
             backgroundColor: '#000000',
             display: 'flex',
             alignItems: 'center',
@@ -377,11 +449,54 @@ function DedicatedReceiver() {
           </div>
 
           {remoteTimestamp && (
-            <div style={{ padding: '12px 18px', fontSize: '11px', color: '#64748b', textAlign: 'right', borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>
+            <div style={{ padding: '10px 16px', fontSize: '11px', color: '#64748b', textAlign: 'right', borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>
               CLOUD PACKET RX: <span style={{ color: '#cbd5e1' }}>{remoteTimestamp}</span>
             </div>
           )}
         </div>
+
+        {/* Captured Photos Gallery on Laptop */}
+        {savedPhotos.length > 0 && (
+          <div style={{
+            backgroundColor: '#0f0f14',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            borderRadius: '20px',
+            padding: '16px 20px'
+          }}>
+            <div style={{ fontSize: '14px', fontWeight: '800', color: '#ffffff', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>📸</span> Snapped Photos Gallery ({savedPhotos.length})
+            </div>
+            <div style={{ display: 'flex', gap: '12px', overflowX: 'auto', paddingBottom: '4px' }}>
+              {savedPhotos.map((p, idx) => (
+                <div key={idx} style={{ flex: '0 0 auto', textAlign: 'center' }}>
+                  <img
+                    src={p.image}
+                    alt="Captured Snap"
+                    style={{ width: '100px', height: '133px', objectFit: 'cover', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.15)' }}
+                  />
+                  <button
+                    onClick={() => downloadPhoto(p)}
+                    style={{
+                      marginTop: '6px',
+                      padding: '4px 10px',
+                      backgroundColor: 'rgba(236, 72, 153, 0.2)',
+                      border: '1px solid #ec4899',
+                      borderRadius: '8px',
+                      color: '#ffffff',
+                      fontSize: '10px',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      display: 'block',
+                      width: '100%'
+                    }}
+                  >
+                    💾 Save
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
@@ -398,7 +513,6 @@ function SnapStudio() {
   const [snapshotFlash, setSnapshotFlash] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState('00:00');
-  const [cloudPeersCount, setCloudPeersCount] = useState(0);
   const [availableCameras, setAvailableCameras] = useState([]);
   const [roomCode] = useState(DEFAULT_CHANNEL);
 
@@ -458,7 +572,16 @@ function SnapStudio() {
     // Setup PeerJS Host
     initHostPeer(roomCode);
 
+    // Clean unload cleanup
+    const handleUnload = () => {
+      if (peerRef.current) {
+        try { peerRef.current.destroy(); } catch (e) {}
+      }
+    };
+    window.addEventListener('beforeunload', handleUnload);
+
     return () => {
+      window.removeEventListener('beforeunload', handleUnload);
       if (cameraManager) cameraManager.stopCamera();
       if (faceTracker) faceTracker.dispose();
       if (rendererRef.current) rendererRef.current.stop();
@@ -477,7 +600,6 @@ function SnapStudio() {
       const offscreen = broadcastCanvasRef.current;
       const ctx = offscreen.getContext('2d');
       ctx.drawImage(canvasRef.current, 0, 0, offscreen.width, offscreen.height);
-      // Quality 0.42 yields ~12KB JPEG (well under 64KB WebRTC SCTP limit)
       return offscreen.toDataURL('image/jpeg', 0.42);
     } catch (e) {
       return null;
@@ -531,9 +653,8 @@ function SnapStudio() {
         if (!connectedClientsRef.current.some((c) => c.peer === conn.peer)) {
           connectedClientsRef.current.push(conn);
         }
-        setCloudPeersCount(connectedClientsRef.current.length);
 
-        // 1. Direct WebRTC MediaStream call if canvas stream is active
+        // Direct WebRTC MediaStream call if canvas stream is active
         if (canvasRef.current && canvasRef.current.captureStream) {
           try {
             const stream = canvasRef.current.captureStream(25);
@@ -543,7 +664,7 @@ function SnapStudio() {
           }
         }
 
-        // 2. Transmit lightweight compressed frame
+        // Transmit lightweight frame
         sendLatestFrame(conn);
       };
 
@@ -561,7 +682,6 @@ function SnapStudio() {
 
       const removeConn = () => {
         connectedClientsRef.current = connectedClientsRef.current.filter((c) => c.peer !== conn.peer);
-        setCloudPeersCount(connectedClientsRef.current.length);
       };
 
       conn.on('close', removeConn);
@@ -570,8 +690,9 @@ function SnapStudio() {
 
     hostPeer.on('error', (err) => {
       console.warn('Host peer notice:', err);
+      // Auto-recover immediately on reload
       if (err.type === 'unavailable-id') {
-        setTimeout(() => initHostPeer(hostId), 2000);
+        setTimeout(() => initHostPeer(hostId), 1200);
       }
     });
   };
@@ -600,7 +721,6 @@ function SnapStudio() {
       let lastBroadcastTime = 0;
       renderer.onFrameRendered = (canvas, filter) => {
         const now = performance.now();
-        // Transmit at ~25fps with compressed payload for instant delivery
         if (now - lastBroadcastTime > 40) {
           try {
             const frameData = getCompressedFrame();
@@ -693,6 +813,7 @@ function SnapStudio() {
     setIsFaceDetected(false);
   };
 
+  // High-Resolution Snapshot Capture & Remote Laptop Sync
   const capturePhoto = () => {
     if (!rendererRef.current || cameraState !== 'active') return;
 
@@ -701,12 +822,38 @@ function SnapStudio() {
 
     const snapshot = rendererRef.current.captureSnapshot();
     if (snapshot) {
+      // 1. Download on Mobile
       const link = document.createElement('a');
       link.download = `SnapAI_${activeFilterRef.current.name}_${Date.now()}.png`;
       link.href = snapshot;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+
+      // 2. Synchronize high-res photo to Laptop receiver
+      const snapshotPayload = {
+        type: 'REMOTE_SNAPSHOT',
+        image: snapshot,
+        filterName: activeFilterRef.current.name,
+        filterIcon: activeFilterRef.current.icon,
+        timestamp: new Date().toLocaleTimeString()
+      };
+
+      if (broadcastChannelRef.current) {
+        broadcastChannelRef.current.postMessage(snapshotPayload);
+      }
+
+      if (connectedClientsRef.current.length > 0) {
+        connectedClientsRef.current.forEach((conn) => {
+          if (conn && conn.open) {
+            try {
+              conn.send(snapshotPayload);
+            } catch (e) {
+              console.warn('Snapshot sync error:', e);
+            }
+          }
+        });
+      }
     }
   };
 
@@ -789,7 +936,7 @@ function SnapStudio() {
           </div>
         </div>
 
-        {/* Top Badges & Controls */}
+        {/* Top Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {isCameraActive && (
             <>
@@ -815,7 +962,7 @@ function SnapStudio() {
                 </button>
               )}
 
-              {/* Face Tracking Indicator */}
+              {/* Face Tracking Status */}
               <span style={{
                 fontSize: '10px',
                 fontFamily: 'monospace',
@@ -850,20 +997,6 @@ function SnapStudio() {
                 {fps} FPS
               </span>
             </>
-          )}
-
-          {cloudPeersCount > 0 && (
-            <span style={{
-              fontSize: '10px',
-              fontWeight: '700',
-              color: '#ffffff',
-              background: 'linear-gradient(135deg, #ec4899, #ef4444)',
-              padding: '4px 9px',
-              borderRadius: '999px',
-              boxShadow: '0 0 12px rgba(236, 72, 153, 0.5)'
-            }}>
-              LIVE ({cloudPeersCount} 💻)
-            </span>
           )}
         </div>
       </header>
