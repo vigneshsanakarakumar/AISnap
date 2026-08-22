@@ -1,64 +1,24 @@
 ﻿/**
- * PiercingRenderer — Compositor for Ear and Navel Piercings
+ * PiercingRenderer — Physics-Driven Navel Jewelry Compositor
  */
-import {
-  drawStud,
-  drawStarStud,
-  drawHoop,
-  drawNavelJewelry
-} from './PiercingGeometry.js';
+import { drawNavelJewelry } from './PiercingGeometry.js';
 
 export class PiercingRenderer {
-  renderEar(ctx, earAnchors, design) {
-    if (!earAnchors) return;
-
-    const { left, right, yaw } = earAnchors;
-
-    // 1. Left Earlobe
-    if (left && Number.isFinite(left.x) && Number.isFinite(left.y) && left.opacity > 0.02) {
-      ctx.save();
-      ctx.translate(left.x, left.y);
-      ctx.rotate(left.rotation || 0);
-      ctx.globalAlpha = Math.max(0, Math.min(1.0, left.opacity));
-
-      // Perspective foreshortening: compress hoop when turning head
-      const foreshorten = Math.max(0.2, Math.min(1.0, 0.85 + (yaw || 0) * 0.7));
-      this.drawEarJewelry(ctx, design, left.scale || 18, foreshorten);
-      ctx.restore();
-    }
-
-    // 2. Right Earlobe
-    if (right && Number.isFinite(right.x) && Number.isFinite(right.y) && right.opacity > 0.02) {
-      ctx.save();
-      ctx.translate(right.x, right.y);
-      ctx.rotate(right.rotation || 0);
-      ctx.globalAlpha = Math.max(0, Math.min(1.0, right.opacity));
-
-      const foreshorten = Math.max(0.2, Math.min(1.0, 0.85 - (yaw || 0) * 0.7));
-      this.drawEarJewelry(ctx, design, right.scale || 18, foreshorten);
-      ctx.restore();
-    }
+  constructor() {
+    this.dangleAngle = 0;
+    this.dangleVelocity = 0;
+    this.lastTimestamp = 0;
+    this.lastTorsoRotation = 0;
   }
 
-  drawEarJewelry(ctx, design, scale, foreshorten = 1.0) {
-    const type = design.type || 'stud';
-    const metal = design.metal || 'silver';
-    const gem = design.gem || null;
-
-    if (type === 'stud') {
-      drawStud(ctx, scale * 0.5, metal, gem);
-    } else if (type === 'star') {
-      drawStarStud(ctx, scale * 0.55, metal);
-    } else if (type === 'hoop') {
-      const R = scale * 0.75;
-      const tubeR = scale * 0.12;
-      drawHoop(ctx, R, tubeR, metal, foreshorten);
-    } else {
-      drawStud(ctx, scale * 0.5, metal, gem);
-    }
+  reset() {
+    this.dangleAngle = 0;
+    this.dangleVelocity = 0;
+    this.lastTimestamp = 0;
+    this.lastTorsoRotation = 0;
   }
 
-  renderNavel(ctx, navelAnchor, design) {
+  renderNavel(ctx, navelAnchor, design, timestamp = performance.now()) {
     if (!navelAnchor || navelAnchor.opacity <= 0.02) {
       return;
     }
@@ -67,6 +27,27 @@ export class PiercingRenderer {
       return;
     }
 
+    // ─── Real-Time Dangle Pendulum Physics Simulation ──────────────────────
+    const dt = Math.min(0.05, Math.max(0.005, (timestamp - (this.lastTimestamp || timestamp)) / 1000));
+    this.lastTimestamp = timestamp;
+
+    const rotDelta = (navelAnchor.rotation || 0) - (this.lastTorsoRotation || 0);
+    this.lastTorsoRotation = navelAnchor.rotation || 0;
+
+    // Linear motion inertia force
+    const linearInertia = -(navelAnchor.vx || 0) * 0.003;
+
+    // Gravity restoring torque
+    const gravityForce = -Math.sin(this.dangleAngle + (navelAnchor.rotation || 0)) * 16;
+
+    const damping = 0.88;
+    this.dangleVelocity = (this.dangleVelocity + (gravityForce + linearInertia - rotDelta * 22) * dt) * damping;
+    this.dangleAngle += this.dangleVelocity * dt;
+    this.dangleAngle = Math.max(-0.6, Math.min(0.6, this.dangleAngle));
+
+    const time = timestamp / 1000;
+
+    // ─── Render Pass ────────────────────────────────────────────────────────
     ctx.save();
     ctx.translate(navelAnchor.x, navelAnchor.y);
     ctx.rotate(navelAnchor.rotation || 0);
@@ -76,7 +57,7 @@ export class PiercingRenderer {
     ctx.imageSmoothingQuality = 'high';
 
     const scale = navelAnchor.scale || 26;
-    drawNavelJewelry(ctx, design, scale, navelAnchor.yaw || 0);
+    drawNavelJewelry(ctx, design, scale, navelAnchor.yaw || 0, time, this.dangleAngle);
 
     ctx.restore();
   }

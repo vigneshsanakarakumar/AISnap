@@ -1,38 +1,88 @@
 ﻿/**
- * PiercingConfig — AR Piercing Studio Configurations & Catalogs
+ * PiercingConfig — Realistic Navel Piercing Studio Catalog & Physical Properties
  */
 
-export const DEBUG = false; // Strictly false in production — zero technical overlays on camera
-
-export const PLACEMENTS = [
-  { id: 'ear',   label: '👂 Ear',   icon: '👂', tracker: 'face', hint: 'Keep your face visible' },
-  { id: 'navel', label: '✨ Navel', icon: '✨', tracker: 'torso', hint: 'Show your torso to preview' }
-];
-
-export const EAR_DESIGNS = [
-  { id: 'silver_stud',  name: 'Silver Stud',  type: 'stud', metal: 'silver', gem: null },
-  { id: 'gold_stud',    name: 'Gold Stud',    type: 'stud', metal: 'gold',   gem: null },
-  { id: 'diamond_stud', name: 'Diamond Stud', type: 'stud', metal: 'silver', gem: 'diamond' },
-  { id: 'star_stud',    name: 'Star Stud',    type: 'star', metal: 'gold',   gem: null },
-  { id: 'small_hoop',   name: 'Small Hoop',   type: 'hoop', metal: 'silver', gem: null },
-  { id: 'gold_hoop',    name: 'Gold Hoop',    type: 'hoop', metal: 'gold',   gem: null },
-  { id: 'black_hoop',   name: 'Black Hoop',   type: 'hoop', metal: 'black',  gem: null }
-];
+export const DEBUG = false;
 
 export const NAVEL_DESIGNS = [
-  { id: 'diamond_solitaire', name: 'Diamond Solitaire', type: 'curved', metal: 'silver', topGem: 'diamond', charm: 'diamond_drop' },
-  { id: 'luxury_gold',       name: '18K Luxury Gold',   type: 'curved', metal: 'gold',   topGem: null,      charm: 'gold_ball' },
-  { id: 'crystal_heart',     name: 'Rose Gold Heart',   type: 'curved', metal: 'rosegold', topGem: 'crystal', charm: 'heart' },
-  { id: 'opal_lotus',        name: 'Opal Lotus Drop',   type: 'curved', metal: 'silver', topGem: 'opal',    charm: 'lotus' },
-  { id: 'emerald_royal',     name: 'Emerald Crown',     type: 'curved', metal: 'gold',   topGem: 'emerald', charm: 'emerald_drop' },
-  { id: 'celestial_star',    name: 'Celestial Star',    type: 'curved', metal: 'silver', topGem: 'diamond', charm: 'star' },
-  { id: 'obsidian_titanium', name: 'Black Titanium',    type: 'curved', metal: 'black',  topGem: null,      charm: 'obsidian_drop' }
+  {
+    id: 'diamond_solitaire',
+    name: '💎 Diamond Solitaire',
+    metal: 'silver',
+    topGem: 'diamond',
+    charm: 'diamond_drop',
+    dangleLength: 1.25,
+    mass: 1.0,
+    gemColor: '#e0f2fe',
+    description: '14K White Gold with brilliant cut diamond solitaire drop'
+  },
+  {
+    id: 'luxury_gold',
+    name: '🌟 18K Luxury Gold',
+    metal: 'gold',
+    topGem: null,
+    charm: 'gold_ball',
+    dangleLength: 1.0,
+    mass: 0.8,
+    gemColor: '#fef08a',
+    description: 'Solid 18K polished yellow gold curved barbell'
+  },
+  {
+    id: 'crystal_heart',
+    name: '💖 Rose Gold Heart',
+    metal: 'rosegold',
+    topGem: 'crystal',
+    charm: 'heart',
+    dangleLength: 1.35,
+    mass: 1.2,
+    gemColor: '#f472b6',
+    description: 'Rose gold curved ring with pavé crystal heart charm'
+  },
+  {
+    id: 'opal_lotus',
+    name: '🌸 Opal Lotus Drop',
+    metal: 'silver',
+    topGem: 'opal',
+    charm: 'lotus',
+    dangleLength: 1.45,
+    mass: 1.3,
+    gemColor: '#a7f3d0',
+    description: 'Platinum filigree lotus blossom with iridescent opal'
+  },
+  {
+    id: 'emerald_royal',
+    name: '🟢 Emerald Crown',
+    metal: 'gold',
+    topGem: 'emerald',
+    charm: 'emerald_drop',
+    dangleLength: 1.3,
+    mass: 1.1,
+    gemColor: '#10b981',
+    description: '18K Yellow Gold with royal teardrop emerald jewel'
+  },
+  {
+    id: 'celestial_star',
+    name: '✨ Celestial Star',
+    metal: 'silver',
+    topGem: 'diamond',
+    charm: 'star',
+    dangleLength: 1.35,
+    mass: 1.0,
+    gemColor: '#fde047',
+    description: 'Gleaming white gold 5-point star with micro-pavé center'
+  },
+  {
+    id: 'obsidian_titanium',
+    name: '🖤 Black Titanium',
+    metal: 'black',
+    topGem: null,
+    charm: 'obsidian_drop',
+    dangleLength: 1.2,
+    mass: 0.9,
+    gemColor: '#6b7280',
+    description: 'Anodized black titanium curved barbell with onyx drop'
+  }
 ];
-
-export function getDesignsForPlacement(placementId) {
-  if (placementId === 'navel') return NAVEL_DESIGNS;
-  return EAR_DESIGNS;
-}
 
 export const METAL_PALETTES = {
   silver: {
@@ -41,7 +91,7 @@ export const METAL_PALETTES = {
     mid: '#cbd5e1',
     sheen: '#f1f5f9',
     highlight: '#ffffff',
-    shadow: 'rgba(0, 0, 0, 0.45)'
+    ambientShadow: 'rgba(0, 0, 0, 0.45)'
   },
   gold: {
     edge: '#451a03',
@@ -49,7 +99,7 @@ export const METAL_PALETTES = {
     mid: '#eab308',
     sheen: '#fef08a',
     highlight: '#ffffff',
-    shadow: 'rgba(30, 15, 0, 0.45)'
+    ambientShadow: 'rgba(35, 18, 0, 0.48)'
   },
   rosegold: {
     edge: '#4c0519',
@@ -57,7 +107,7 @@ export const METAL_PALETTES = {
     mid: '#fb7185',
     sheen: '#ffe4e6',
     highlight: '#ffffff',
-    shadow: 'rgba(40, 10, 20, 0.45)'
+    ambientShadow: 'rgba(40, 10, 20, 0.45)'
   },
   black: {
     edge: '#09090b',
@@ -65,7 +115,7 @@ export const METAL_PALETTES = {
     mid: '#3f3f46',
     sheen: '#71717a',
     highlight: '#e4e4e7',
-    shadow: 'rgba(0, 0, 0, 0.6)'
+    ambientShadow: 'rgba(0, 0, 0, 0.6)'
   }
 };
 

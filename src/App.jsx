@@ -768,8 +768,7 @@ function SnapStudio() {
   const [recordingTime, setRecordingTime] = useState('00:00');
   const [availableCameras, setAvailableCameras] = useState([]);
 
-  // Interactive Filter Customization States (AR Piercing Studio)
-  const [piercingPlacement, setPiercingPlacement] = useState('ear'); // 'ear' or 'navel'
+  // Interactive Filter Customization States (Navel Piercing Studio)
   const [piercingDesign, setPiercingDesign] = useState(0);
   const [piercingSize, setPiercingSize] = useState('medium'); // 'small', 'medium', 'large'
 
@@ -798,10 +797,9 @@ function SnapStudio() {
 
   const activeFilterRef = useRef(activeFilter);
 
-  // Apply piercing customization to active filter instance
+  // Apply navel piercing customization to active filter instance
   useEffect(() => {
     if (activeFilter.id === 'ar_piercing') {
-      if (activeFilter.setPlacement) activeFilter.setPlacement(piercingPlacement);
       if (activeFilter.setDesign) activeFilter.setDesign(piercingDesign);
       if (activeFilter.setSize) activeFilter.setSize(piercingSize);
     }
@@ -811,7 +809,7 @@ function SnapStudio() {
       rendererRef.current.setFilter(activeFilter);
     }
     notifyFilterChange(activeFilter);
-  }, [activeFilter, piercingPlacement, piercingDesign, piercingSize]);
+  }, [activeFilter, piercingDesign, piercingSize]);
 
   const notifyFilterChange = (filter) => {
     const payload = {
@@ -1487,7 +1485,7 @@ function SnapStudio() {
           )}
         </div>
 
-        {/* Interactive Customization Controls for AR Piercing Studio */}
+        {/* Interactive Customization Controls for Navel Piercing Studio */}
         {activeFilter.id === 'ar_piercing' && isCameraActive && (
           <div style={{
             width: '100%',
@@ -1503,60 +1501,34 @@ function SnapStudio() {
             {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: '12px', fontWeight: '800', color: '#f472b6', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                💎 AR Piercing Studio
+                ✨ Navel Piercing Studio
               </span>
               <span style={{ fontSize: '10px', color: '#94a3b8', fontStyle: 'italic' }}>
-                Real-Time AR Preview
+                3D Belly Button Preview
               </span>
             </div>
 
-            {/* 1. Placement Selector */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '11px', fontWeight: '800', color: '#cbd5e1' }}>📍 Placement:</span>
-              <div style={{ display: 'flex', gap: '6px' }}>
-                {[
-                  { id: 'ear', label: '👂 Ear' },
-                  { id: 'navel', label: '✨ Navel' }
-                ].map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => {
-                      setPiercingPlacement(p.id);
-                      setPiercingDesign(0);
-                    }}
-                    style={{
-                      padding: '4px 12px',
-                      borderRadius: '999px',
-                      border: piercingPlacement === p.id ? '1.5px solid #ec4899' : '1px solid rgba(255, 255, 255, 0.1)',
-                      backgroundColor: piercingPlacement === p.id ? '#ec4899' : 'rgba(255, 255, 255, 0.05)',
-                      color: '#ffffff',
-                      fontSize: '11px',
-                      fontWeight: '700',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* 2. Jewelry Selector */}
+            {/* 1. Jewelry Selector */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: '11px', fontWeight: '800', color: '#cbd5e1' }}>💍 Jewelry:</span>
               <div style={{ display: 'flex', gap: '5px', overflowX: 'auto', maxWidth: '75%', scrollbarWidth: 'none' }}>
-                {(piercingPlacement === 'ear'
-                  ? ['Silver Stud', 'Gold Stud', 'Diamond Stud', 'Star Stud', 'Small Hoop', 'Gold Hoop', 'Black Hoop']
-                  : ['💎 Solitaire', '🌟 18K Gold', '💖 Rose Heart', '🌸 Opal Lotus', '🟢 Emerald', '✨ Star', '🖤 Titanium']
-                ).map((name, idx) => (
+                {[
+                  '💎 Solitaire',
+                  '🌟 18K Gold',
+                  '💖 Rose Heart',
+                  '🌸 Opal Lotus',
+                  '🟢 Emerald',
+                  '✨ Star',
+                  '🖤 Titanium'
+                ].map((name, idx) => (
                   <button
                     key={idx}
                     onClick={() => setPiercingDesign(idx)}
                     style={{
                       padding: '4px 10px',
                       borderRadius: '8px',
-                      border: piercingDesign === idx ? '1.5px solid #a855f7' : '1px solid rgba(255, 255, 255, 0.08)',
-                      backgroundColor: piercingDesign === idx ? '#a855f7' : 'transparent',
+                      border: piercingDesign === idx ? '1.5px solid #ec4899' : '1px solid rgba(255, 255, 255, 0.08)',
+                      backgroundColor: piercingDesign === idx ? '#ec4899' : 'transparent',
                       color: piercingDesign === idx ? '#ffffff' : '#94a3b8',
                       fontSize: '10px',
                       fontWeight: '700',
@@ -1570,7 +1542,7 @@ function SnapStudio() {
               </div>
             </div>
 
-            {/* 3. Size Selector */}
+            {/* 2. Size Selector */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: '11px', fontWeight: '800', color: '#cbd5e1' }}>📏 Size:</span>
               <div style={{ display: 'flex', gap: '6px' }}>
