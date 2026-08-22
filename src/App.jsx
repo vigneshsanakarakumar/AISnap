@@ -65,12 +65,11 @@ function DedicatedReceiver() {
   const retryIntervalRef = useRef(null);
 
   useEffect(() => {
-    // Read room code from URL if present (e.g. ?aa&room=xyz)
     const urlParams = new URLSearchParams(window.location.search);
     const targetRoom = urlParams.get('room') || DEFAULT_CHANNEL;
     setRoomCode(targetRoom);
 
-    // 1. Local BroadcastChannel Listener (for same-device tabs)
+    // 1. Same-device local BroadcastChannel listener
     try {
       if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
         const channel = new BroadcastChannel('snap_filter_broadcast_stream');
@@ -79,7 +78,7 @@ function DedicatedReceiver() {
         channel.onmessage = (event) => {
           try {
             const { type, frame, filterName, filterIcon, timestamp } = event.data || {};
-            if (type === 'SNAP_FRAME') {
+            if (type === 'SNAP_FRAME' && frame) {
               setRemoteImage(frame);
               setRemoteFilterName(filterName || 'Filter');
               setRemoteFilterIcon(filterIcon || '✨');
@@ -118,24 +117,22 @@ function DedicatedReceiver() {
     peerRef.current = peer;
 
     peer.on('open', () => {
-      setConnectionState(`Cloud Link Online. Connecting to ${targetRoom}...`);
+      setConnectionState(`Searching for Mobile Host on "${targetRoom}"...`);
       attemptConnection(peer, targetRoom);
     });
 
     peer.on('error', (err) => {
-      console.warn('Receiver peer error:', err);
       if (err.type === 'peer-unavailable') {
         setConnectionState(`Waiting for Mobile to start camera on "${targetRoom}"...`);
-        setIsConnected(false);
       }
     });
 
-    // Auto-retry connection every 3 seconds if not connected
+    // Auto-retry connection every 2.5s if not active
     retryIntervalRef.current = setInterval(() => {
       if (peer && !peer.destroyed && !activeConnRef.current?.open) {
         attemptConnection(peer, targetRoom);
       }
-    }, 3000);
+    }, 2500);
 
     return () => {
       if (broadcastChannelRef.current) {
@@ -161,14 +158,16 @@ function DedicatedReceiver() {
 
       conn.on('open', () => {
         activeConnRef.current = conn;
-        setConnectionState('CONNECTED (INTERNET CLOUD)');
+        setConnectionState('CONNECTED (STREAMING)');
         setIsConnected(true);
-        // Send handshake ping
-        try { conn.send({ type: 'PING' }); } catch (e) {}
+        // Request frame immediately
+        try {
+          conn.send({ type: 'REQUEST_FRAME' });
+        } catch (e) {}
       });
 
       conn.on('data', (data) => {
-        if (data && data.type === 'FRAME_DATA') {
+        if (data && data.type === 'FRAME_DATA' && data.frame) {
           setRemoteImage(data.frame);
           setRemoteFilterName(data.filterName || 'Lens');
           setRemoteFilterIcon(data.filterIcon || '✨');
@@ -253,9 +252,9 @@ function DedicatedReceiver() {
             borderRadius: '999px',
             fontSize: '11px',
             fontWeight: '700',
-            backgroundColor: isConnected ? 'rgba(34, 197, 94, 0.18)' : 'rgba(234, 179, 8, 0.15)',
-            color: isConnected ? '#4ade80' : '#facc15',
-            border: `1px solid ${isConnected ? 'rgba(34, 197, 94, 0.3)' : 'rgba(234, 179, 8, 0.3)'}`,
+            backgroundColor: isConnected && remoteImage ? 'rgba(34, 197, 94, 0.18)' : 'rgba(234, 179, 8, 0.15)',
+            color: isConnected && remoteImage ? '#4ade80' : '#facc15',
+            border: `1px solid ${isConnected && remoteImage ? 'rgba(34, 197, 94, 0.3)' : 'rgba(234, 179, 8, 0.3)'}`,
             display: 'flex',
             alignItems: 'center',
             gap: '6px'
@@ -264,10 +263,10 @@ function DedicatedReceiver() {
               width: '7px',
               height: '7px',
               borderRadius: '50%',
-              backgroundColor: isConnected ? '#4ade80' : '#facc15',
+              backgroundColor: isConnected && remoteImage ? '#4ade80' : '#facc15',
               display: 'inline-block'
             }}></span>
-            {isConnected ? `STREAMING (${receiverFps} FPS)` : 'CONNECTING'}
+            {isConnected && remoteImage ? `STREAMING (${receiverFps} FPS)` : 'CONNECTING'}
           </span>
 
           {remoteImage && (
@@ -307,7 +306,7 @@ function DedicatedReceiver() {
             {remoteImage ? (
               <img
                 src={remoteImage}
-                alt="Live Broadcast from Phone"
+                alt="Live Stream from Phone"
                 style={{ width: '100%', height: '100%', objectFit: 'contain' }}
               />
             ) : (
@@ -431,6 +430,20 @@ function SnapStudio() {
     };
   }, [roomCode]);
 
+  const sendLatestFrame = (conn) => {
+    if (!conn || !conn.open || !canvasRef.current) return;
+    try {
+      const frameData = canvasRef.current.toDataURL('image/jpeg', 0.5);
+      conn.send({
+        type: 'FRAME_DATA',
+        frame: frameData,
+        filterName: activeFilterRef.current.name,
+        filterIcon: activeFilterRef.current.icon,
+        timestamp: new Date().toLocaleTimeString()
+      });
+    } catch (e) {}
+  };
+
   const initHostPeer = (hostId) => {
     if (peerRef.current) {
       try { peerRef.current.destroy(); } catch (e) {}
@@ -454,38 +467,39 @@ function SnapStudio() {
     });
 
     hostPeer.on('connection', (conn) => {
-      console.log('Client connected:', conn.peer);
-      connectedClientsRef.current = [...connectedClientsRef.current.filter((c) => c.open), conn];
-      setCloudPeersCount(connectedClientsRef.current.length);
+      console.log('Incoming client connection from:', conn.peer);
 
-      // Send initial frame immediately if canvas is ready
-      if (canvasRef.current && rendererRef.current?.isRunning) {
-        try {
-          const frameData = canvasRef.current.toDataURL('image/jpeg', 0.5);
-          conn.send({
-            type: 'FRAME_DATA',
-            frame: frameData,
-            filterName: activeFilterRef.current.name,
-            filterIcon: activeFilterRef.current.icon,
-            timestamp: new Date().toLocaleTimeString()
-          });
-        } catch (e) {}
+      const registerConnection = () => {
+        if (!connectedClientsRef.current.some((c) => c.peer === conn.peer)) {
+          connectedClientsRef.current.push(conn);
+        }
+        setCloudPeersCount(connectedClientsRef.current.length);
+        sendLatestFrame(conn);
+      };
+
+      if (conn.open) {
+        registerConnection();
+      } else {
+        conn.on('open', registerConnection);
       }
 
-      conn.on('close', () => {
-        connectedClientsRef.current = connectedClientsRef.current.filter((c) => c !== conn);
-        setCloudPeersCount(connectedClientsRef.current.length);
+      conn.on('data', (data) => {
+        if (data?.type === 'REQUEST_FRAME' || data?.type === 'PING') {
+          registerConnection();
+        }
       });
 
-      conn.on('error', () => {
-        connectedClientsRef.current = connectedClientsRef.current.filter((c) => c !== conn);
+      const removeConn = () => {
+        connectedClientsRef.current = connectedClientsRef.current.filter((c) => c.peer !== conn.peer);
         setCloudPeersCount(connectedClientsRef.current.length);
-      });
+      };
+
+      conn.on('close', removeConn);
+      conn.on('error', removeConn);
     });
 
     hostPeer.on('error', (err) => {
       console.warn('Host peer notice:', err);
-      // If default ID was momentarily occupied, retry in 2 seconds
       if (err.type === 'unavailable-id') {
         setTimeout(() => initHostPeer(hostId), 2000);
       }
@@ -516,8 +530,8 @@ function SnapStudio() {
       let lastBroadcastTime = 0;
       renderer.onFrameRendered = (canvas, filter) => {
         const now = performance.now();
-        // Transmit at ~22fps for optimal bandwidth & zero lag
-        if (now - lastBroadcastTime > 45) {
+        // Transmit at ~25fps for fluid, real-time performance
+        if (now - lastBroadcastTime > 40) {
           try {
             const frameData = canvas.toDataURL('image/jpeg', 0.52);
             const payload = {
@@ -528,15 +542,15 @@ function SnapStudio() {
               timestamp: new Date().toLocaleTimeString()
             };
 
-            // 1. Same-device local BroadcastChannel
+            // 1. Same-device BroadcastChannel
             if (broadcastChannelRef.current) {
               broadcastChannelRef.current.postMessage(payload);
             }
 
-            // 2. Internet WebRTC connected clients (Laptop/PC)
+            // 2. WebRTC Connected Clients (Laptop / PC)
             if (connectedClientsRef.current.length > 0) {
               connectedClientsRef.current.forEach((conn) => {
-                if (conn.open) {
+                if (conn && conn.open) {
                   try {
                     conn.send({
                       type: 'FRAME_DATA',
@@ -545,7 +559,9 @@ function SnapStudio() {
                       filterIcon: payload.filterIcon,
                       timestamp: payload.timestamp
                     });
-                  } catch (e) {}
+                  } catch (e) {
+                    console.warn('Send error:', e);
+                  }
                 }
               });
             }
