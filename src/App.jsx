@@ -64,7 +64,7 @@ class ErrorBoundary extends Component {
   }
 }
 
-// Dedicated Receiver Portal (/aa) with Left Panel Photo Gallery
+// Dedicated Receiver Portal (/aa) with Non-Scrollable Fullscreen Layout & Left Panel Gallery
 function DedicatedReceiver() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [remoteFilterName, setRemoteFilterName] = useState('Lens');
@@ -82,6 +82,7 @@ function DedicatedReceiver() {
   const broadcastChannelRef = useRef(null);
   const receiverLastFpsUpdateRef = useRef(Date.now());
   const fpsIntervalRef = useRef(null);
+  const chunkAssemblyMapRef = useRef(new Map());
 
   useEffect(() => {
     console.log('[LAPTOP] Receiver initializing');
@@ -228,18 +229,52 @@ function DedicatedReceiver() {
       });
     });
 
-    // Metadata DataChannel for Snapshots, Location and Filters
+    // Metadata DataChannel for Snapshots, Location, Chunks and Filters
     peer.on('connection', (conn) => {
       console.log('[LAPTOP] Incoming metadata connection from:', conn.peer);
       activeDataConnRef.current = conn;
 
       conn.on('data', (data) => {
-        if (data?.type === 'REMOTE_SNAPSHOT' && data.image) {
+        if (!data) return;
+
+        // 1. Direct Snapshot
+        if (data.type === 'REMOTE_SNAPSHOT' && data.image) {
           handleNewSnapshot(data);
-        } else if (data?.type === 'LOCATION_UPDATE' && data.location) {
+        }
+        // 2. Multi-Part Chunk Assembly (Zero Packet Drop for Ultra-HD)
+        else if (data.type === 'SNAPSHOT_CHUNK') {
+          const { transferId, index, total, chunk, meta } = data;
+          let entry = chunkAssemblyMapRef.current.get(transferId);
+          if (!entry) {
+            entry = { chunks: new Array(total), meta: meta || {}, received: 0 };
+            chunkAssemblyMapRef.current.set(transferId, entry);
+          }
+          if (meta) {
+            entry.meta = { ...entry.meta, ...meta };
+          }
+          if (!entry.chunks[index]) {
+            entry.chunks[index] = chunk;
+            entry.received++;
+          }
+
+          if (entry.received === total) {
+            const fullImage = entry.chunks.join('');
+            chunkAssemblyMapRef.current.delete(transferId);
+            handleNewSnapshot({
+              image: fullImage,
+              filterName: entry.meta.filterName || 'Photo',
+              filterIcon: entry.meta.filterIcon || '📸',
+              timestamp: entry.meta.timestamp || new Date().toLocaleTimeString()
+            });
+          }
+        }
+        // 3. Location Update
+        else if (data.type === 'LOCATION_UPDATE' && data.location) {
           console.log('[LAPTOP] Received Mobile Location:', data.location);
           setRemoteLocation(data.location);
-        } else if (data?.type === 'FILTER_CHANGE') {
+        }
+        // 4. Filter Change
+        else if (data.type === 'FILTER_CHANGE') {
           if (data.filterName) setRemoteFilterName(data.filterName);
           if (data.filterIcon) setRemoteFilterIcon(data.filterIcon);
         }
@@ -261,6 +296,7 @@ function DedicatedReceiver() {
   };
 
   const handleNewSnapshot = (photo) => {
+    console.log('[LAPTOP] Adding new snapshot to Left Panel:', photo.filterName);
     setSavedPhotos((prev) => [photo, ...prev]);
     setNewPhotoToast(photo);
     setTimeout(() => {
@@ -279,29 +315,32 @@ function DedicatedReceiver() {
 
   return (
     <div style={{
-      minHeight: '100vh',
+      height: '100vh',
+      maxHeight: '100vh',
+      width: '100vw',
+      overflow: 'hidden',
       display: 'flex',
       flexDirection: 'column',
       backgroundColor: '#060609',
       color: '#f8fafc'
     }}>
-      {/* Top Header Bar */}
+      {/* Header (Fixed 60px) */}
       <header style={{
-        padding: '14px 20px',
-        backgroundColor: 'rgba(15, 15, 20, 0.92)',
+        height: '60px',
+        padding: '0 20px',
+        backgroundColor: 'rgba(15, 15, 20, 0.95)',
         backdropFilter: 'blur(16px)',
         borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        position: 'sticky',
-        top: 0,
+        flexShrink: 0,
         zIndex: 50
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <div style={{
-            width: '36px',
-            height: '36px',
+            width: '34px',
+            height: '34px',
             borderRadius: '10px',
             background: 'linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%)',
             display: 'flex',
@@ -315,7 +354,7 @@ function DedicatedReceiver() {
             <h1 style={{ fontSize: '15px', fontWeight: '800', letterSpacing: '-0.01em', color: '#ffffff' }}>
               Live Receiver Portal
             </h1>
-            <p style={{ fontSize: '11px', color: '#94a3b8', fontFamily: 'monospace' }}>
+            <p style={{ fontSize: '10px', color: '#94a3b8', fontFamily: 'monospace' }}>
               ULTRA HD // 120 FPS // /aa
             </p>
           </div>
@@ -329,7 +368,7 @@ function DedicatedReceiver() {
               rel="noopener noreferrer"
               title="Open Location in Google Maps"
               style={{
-                padding: '5px 12px',
+                padding: '4px 10px',
                 borderRadius: '999px',
                 backgroundColor: 'rgba(59, 130, 246, 0.2)',
                 border: '1px solid #3b82f6',
@@ -339,7 +378,7 @@ function DedicatedReceiver() {
                 textDecoration: 'none',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '5px'
+                gap: '4px'
               }}
             >
               <span>📍</span> {remoteLocation.city ? `${remoteLocation.city}, ` : ''}{remoteLocation.latitude.toFixed(3)}°, {remoteLocation.longitude.toFixed(3)}°
@@ -388,7 +427,7 @@ function DedicatedReceiver() {
       {newPhotoToast && (
         <div style={{
           position: 'fixed',
-          top: '75px',
+          top: '70px',
           right: '20px',
           zIndex: 100,
           backgroundColor: '#1e1e2d',
@@ -508,41 +547,48 @@ function DedicatedReceiver() {
         </div>
       )}
 
-      {/* Main Dual-Layout View: Left Panel Gallery + Ultra HD Center Viewport */}
-      <div style={{ flex: 1, display: 'flex', padding: '16px', gap: '16px', maxWidth: '1400px', margin: '0 auto', width: '100%' }}>
+      {/* Main Dual-Layout View: Non-Scrollable Fullscreen Studio */}
+      <div style={{
+        flex: 1,
+        display: 'flex',
+        height: 'calc(100vh - 60px)',
+        overflow: 'hidden',
+        padding: '12px 16px',
+        gap: '16px',
+        boxSizing: 'border-box'
+      }}>
         
         {/* LEFT PANEL: Snapped Photos Live Gallery */}
         <aside style={{
-          width: '320px',
+          width: '300px',
           flexShrink: 0,
           backgroundColor: '#0d0d13',
           border: '1.5px solid rgba(255, 255, 255, 0.1)',
-          borderRadius: '24px',
-          padding: '18px',
+          borderRadius: '20px',
+          padding: '14px',
           display: 'flex',
           flexDirection: 'column',
-          boxShadow: '0 12px 40px rgba(0, 0, 0, 0.6)',
-          height: 'calc(100vh - 105px)',
-          position: 'sticky',
-          top: '85px'
+          height: '100%',
+          overflow: 'hidden',
+          boxSizing: 'border-box'
         }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '12px' }}>
-            <div style={{ fontSize: '15px', fontWeight: '800', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '10px' }}>
+            <div style={{ fontSize: '14px', fontWeight: '800', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span>📸</span>
               <span>Left Panel Gallery</span>
             </div>
-            <span style={{ fontSize: '11px', fontWeight: '700', padding: '3px 8px', borderRadius: '999px', backgroundColor: 'rgba(236, 72, 153, 0.2)', color: '#f472b6' }}>
+            <span style={{ fontSize: '10px', fontWeight: '700', padding: '2px 7px', borderRadius: '999px', backgroundColor: 'rgba(236, 72, 153, 0.2)', color: '#f472b6' }}>
               {savedPhotos.length} Snaps
             </span>
           </div>
 
-          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px', paddingRight: '4px' }}>
+          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px', paddingRight: '2px' }}>
             {savedPhotos.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '40px 10px', color: '#64748b' }}>
-                <div style={{ fontSize: '32px', marginBottom: '8px' }}>📷</div>
-                <div style={{ fontSize: '13px', fontWeight: '700', color: '#94a3b8' }}>No Snapped Photos Yet</div>
-                <p style={{ fontSize: '11px', color: '#64748b', marginTop: '6px', lineHeight: 1.4 }}>
-                  When you tap the <strong>📸 Shutter</strong> on your phone, HD captured pictures will instantly appear here.
+              <div style={{ textAlign: 'center', padding: '36px 8px', color: '#64748b' }}>
+                <div style={{ fontSize: '28px', marginBottom: '6px' }}>📷</div>
+                <div style={{ fontSize: '12px', fontWeight: '700', color: '#94a3b8' }}>No Snapped Photos Yet</div>
+                <p style={{ fontSize: '10px', color: '#64748b', marginTop: '4px', lineHeight: 1.4 }}>
+                  Tap the <strong>📸 Shutter</strong> on your phone to see pictures appear here instantly.
                 </p>
               </div>
             ) : (
@@ -552,32 +598,31 @@ function DedicatedReceiver() {
                   style={{
                     backgroundColor: '#13131c',
                     border: '1px solid rgba(255, 255, 255, 0.08)',
-                    borderRadius: '16px',
-                    padding: '10px',
+                    borderRadius: '14px',
+                    padding: '8px',
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '8px',
-                    transition: 'all 0.2s ease'
+                    gap: '6px'
                   }}
                 >
                   <div
                     onClick={() => setSelectedPhotoPreview(p)}
-                    style={{ position: 'relative', cursor: 'pointer', borderRadius: '10px', overflow: 'hidden' }}
+                    style={{ position: 'relative', cursor: 'pointer', borderRadius: '8px', overflow: 'hidden' }}
                   >
                     <img
                       src={p.image}
                       alt="Snap Preview"
-                      style={{ width: '100%', height: '170px', objectFit: 'cover', display: 'block' }}
+                      style={{ width: '100%', height: '140px', objectFit: 'cover', display: 'block' }}
                     />
                     <div style={{
                       position: 'absolute',
-                      top: '6px',
-                      left: '6px',
-                      padding: '3px 8px',
+                      top: '4px',
+                      left: '4px',
+                      padding: '2px 6px',
                       borderRadius: '999px',
                       backgroundColor: 'rgba(0, 0, 0, 0.7)',
                       backdropFilter: 'blur(6px)',
-                      fontSize: '10px',
+                      fontSize: '9px',
                       fontWeight: '700',
                       color: '#ffffff',
                       display: 'flex',
@@ -590,18 +635,18 @@ function DedicatedReceiver() {
                   </div>
 
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '10px', color: '#94a3b8', fontFamily: 'monospace' }}>
+                    <span style={{ fontSize: '9px', color: '#94a3b8', fontFamily: 'monospace' }}>
                       {p.timestamp || 'Just now'}
                     </span>
                     <button
                       onClick={() => downloadPhoto(p)}
                       style={{
-                        padding: '5px 12px',
+                        padding: '4px 10px',
                         backgroundColor: '#ec4899',
                         color: '#ffffff',
                         border: 'none',
-                        borderRadius: '8px',
-                        fontSize: '11px',
+                        borderRadius: '6px',
+                        fontSize: '10px',
                         fontWeight: '700',
                         cursor: 'pointer',
                         display: 'flex',
@@ -609,7 +654,7 @@ function DedicatedReceiver() {
                         gap: '4px'
                       }}
                     >
-                      <span>💾</span> Download HD
+                      <span>💾</span> Save HD
                     </button>
                   </div>
                 </div>
@@ -618,141 +663,77 @@ function DedicatedReceiver() {
           </div>
         </aside>
 
-        {/* MAIN VIEWPORT: Ultra-HD Low-Latency Live Video Screen */}
-        <main style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          
+        {/* MAIN VIEWPORT: Non-Scrollable Ultra-HD Live Video Viewport */}
+        <main style={{
+          flex: 1,
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+          backgroundColor: '#0a0a0f',
+          border: '1.5px solid rgba(255, 255, 255, 0.1)',
+          borderRadius: '20px',
+          position: 'relative'
+        }}>
           <div style={{
-            backgroundColor: '#0f0f14',
-            border: '1.5px solid rgba(255, 255, 255, 0.1)',
-            borderRadius: '24px',
-            overflow: 'hidden',
-            boxShadow: '0 20px 50px rgba(0, 0, 0, 0.7)',
-            flex: 1,
+            position: 'relative',
+            width: '100%',
+            height: '100%',
             display: 'flex',
-            flexDirection: 'column'
+            alignItems: 'center',
+            justifyContent: 'center',
+            overflow: 'hidden',
+            backgroundColor: '#000000'
           }}>
-            <div style={{
-              position: 'relative',
-              width: '100%',
-              flex: 1,
-              minHeight: '68vh',
-              backgroundColor: '#000000',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}>
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'contain',
-                  display: isStreaming ? 'block' : 'none',
-                  imageRendering: 'high-quality',
-                  transform: 'translateZ(0)'
-                }}
-              />
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'contain',
+                display: isStreaming ? 'block' : 'none',
+                imageRendering: 'high-quality',
+                transform: 'translateZ(0)'
+              }}
+            />
 
-              {!isStreaming && (
-                <div style={{ textAlign: 'center', padding: '48px', color: '#94a3b8' }}>
-                  <div style={{
-                    width: '74px',
-                    height: '74px',
-                    borderRadius: '50%',
-                    background: 'linear-gradient(135deg, rgba(236, 72, 153, 0.15), rgba(139, 92, 246, 0.15))',
-                    border: '1.5px dashed rgba(255, 255, 255, 0.25)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    margin: '0 auto 16px auto',
-                    fontSize: '32px'
-                  }}>
-                    ✨
-                  </div>
-                  <div style={{ fontSize: '18px', fontWeight: '800', color: '#ffffff' }}>
-                    Live Ultra-HD Receiver Ready
-                  </div>
-                  <div style={{
-                    marginTop: '12px',
-                    padding: '8px 16px',
-                    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                    borderRadius: '12px',
-                    fontSize: '12px',
-                    color: '#cbd5e1',
-                    display: 'inline-block',
-                    fontFamily: 'monospace'
-                  }}>
-                    Open <strong>https://snap-filter-bay.vercel.app/</strong> on your phone and tap Start
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Live GPS Location Card */}
-          {remoteLocation && (
-            <div style={{
-              backgroundColor: '#0f0f14',
-              border: '1.5px solid rgba(59, 130, 246, 0.3)',
-              borderRadius: '20px',
-              padding: '16px 20px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              boxShadow: '0 8px 25px rgba(0, 0, 0, 0.5)'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            {!isStreaming && (
+              <div style={{ textAlign: 'center', padding: '32px', color: '#94a3b8' }}>
                 <div style={{
-                  width: '42px',
-                  height: '42px',
-                  borderRadius: '12px',
-                  background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.3), rgba(139, 92, 246, 0.3))',
-                  border: '1px solid rgba(59, 130, 246, 0.4)',
+                  width: '68px',
+                  height: '68px',
+                  borderRadius: '50%',
+                  background: 'linear-gradient(135deg, rgba(236, 72, 153, 0.15), rgba(139, 92, 246, 0.15))',
+                  border: '1.5px dashed rgba(255, 255, 255, 0.25)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  fontSize: '22px'
+                  margin: '0 auto 14px auto',
+                  fontSize: '30px'
                 }}>
-                  📍
+                  ✨
                 </div>
-                <div>
-                  <div style={{ fontSize: '14px', fontWeight: '800', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span>Live Host Location</span>
-                    {remoteLocation.city && (
-                      <span style={{ fontSize: '12px', color: '#93c5fd', backgroundColor: 'rgba(59, 130, 246, 0.2)', padding: '2px 8px', borderRadius: '6px' }}>
-                        {remoteLocation.city}, {remoteLocation.country || ''}
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ fontSize: '12px', color: '#94a3b8', fontFamily: 'monospace', marginTop: '4px' }}>
-                    LAT: <strong style={{ color: '#60a5fa' }}>{remoteLocation.latitude}</strong> | LON: <strong style={{ color: '#60a5fa' }}>{remoteLocation.longitude}</strong> {remoteLocation.accuracy ? `(Accuracy: ±${Math.round(remoteLocation.accuracy)}m)` : ''}
-                  </div>
+                <div style={{ fontSize: '17px', fontWeight: '800', color: '#ffffff' }}>
+                  Live Ultra-HD Receiver Ready
+                </div>
+                <div style={{
+                  marginTop: '10px',
+                  padding: '6px 14px',
+                  backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                  borderRadius: '10px',
+                  fontSize: '11px',
+                  color: '#cbd5e1',
+                  display: 'inline-block',
+                  fontFamily: 'monospace'
+                }}>
+                  Open <strong>https://snap-filter-bay.vercel.app/</strong> on your phone and tap Start
                 </div>
               </div>
-              <a
-                href={`https://www.google.com/maps?q=${remoteLocation.latitude},${remoteLocation.longitude}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  padding: '10px 18px',
-                  backgroundColor: '#3b82f6',
-                  color: '#ffffff',
-                  borderRadius: '12px',
-                  textDecoration: 'none',
-                  fontSize: '12px',
-                  fontWeight: '800',
-                  boxShadow: '0 4px 15px rgba(59, 130, 246, 0.4)',
-                  whiteSpace: 'nowrap'
-                }}
-              >
-                Open in Maps ↗
-              </a>
-            </div>
-          )}
-
+            )}
+          </div>
         </main>
       </div>
     </div>
@@ -1161,7 +1142,7 @@ function SnapStudio() {
     setFps(0);
   };
 
-  // High-Resolution Snapshot Capture & Remote Laptop Sync
+  // High-Resolution Snapshot Capture with Reliable 16KB Multi-Part Chunk Transmission
   const capturePhoto = () => {
     if (!rendererRef.current || cameraState !== 'active') return;
 
@@ -1178,23 +1159,44 @@ function SnapStudio() {
       link.click();
       document.body.removeChild(link);
 
-      // 2. Synchronize High-Res Original PNG to Laptop Left Panel
-      const snapshotPayload = {
-        type: 'REMOTE_SNAPSHOT',
-        image: snapshot,
-        filterName: activeFilterRef.current.name,
-        filterIcon: activeFilterRef.current.icon,
-        timestamp: new Date().toLocaleTimeString()
-      };
+      const filterName = activeFilterRef.current.name;
+      const filterIcon = activeFilterRef.current.icon;
+      const timestamp = new Date().toLocaleTimeString();
 
+      // 2. BroadcastChannel for same-device receiver
       if (broadcastChannelRef.current) {
-        broadcastChannelRef.current.postMessage(snapshotPayload);
+        broadcastChannelRef.current.postMessage({
+          type: 'REMOTE_SNAPSHOT',
+          image: snapshot,
+          filterName,
+          filterIcon,
+          timestamp
+        });
       }
 
+      // 3. Reliable Multi-Part Chunked Transmission over WebRTC DataChannel
       if (dataConnRef.current && dataConnRef.current.open) {
         try {
-          dataConnRef.current.send(snapshotPayload);
-        } catch (e) {}
+          const CHUNK_SIZE = 16384; // 16KB safe chunks to avoid WebRTC buffer overflow
+          const totalChunks = Math.ceil(snapshot.length / CHUNK_SIZE);
+          const transferId = 'snap_' + Date.now();
+
+          console.log(`[PHONE] Transmitting HD snapshot in ${totalChunks} chunks...`);
+
+          for (let i = 0; i < totalChunks; i++) {
+            const chunk = snapshot.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+            dataConnRef.current.send({
+              type: 'SNAPSHOT_CHUNK',
+              transferId,
+              index: i,
+              total: totalChunks,
+              chunk,
+              meta: i === 0 ? { filterName, filterIcon, timestamp } : null
+            });
+          }
+        } catch (e) {
+          console.warn('[PHONE] Chunk transmission error:', e);
+        }
       }
     }
   };
