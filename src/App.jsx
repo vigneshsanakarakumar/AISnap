@@ -7,8 +7,8 @@ import { ARRenderer } from './ar/renderer/ARRenderer.js';
 import { ARRecorder } from './ar/utils/recorder.js';
 import { ALL_FILTERS } from './ar/filters/index.js';
 
-// Central Receiver Endpoint ID
-const RECEIVER_PORTAL_ID = 'aisnap-laptop-receiver';
+// Dedicated Direct 1-to-1 Cloud Receiver Endpoint
+const RECEIVER_PORTAL_ID = 'aisnap-portal-stream';
 
 // Error Boundary
 class ErrorBoundary extends Component {
@@ -46,15 +46,13 @@ class ErrorBoundary extends Component {
   }
 }
 
-// Dedicated Receiver Portal (/aa) — Automatically pairs with the latest active phone user
+// Dedicated Receiver Portal (/aa) — Pairs with the single latest active user
 function DedicatedReceiver() {
   const [remoteImage, setRemoteImage] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
   const [remoteFilterName, setRemoteFilterName] = useState('RAW');
   const [remoteFilterIcon, setRemoteFilterIcon] = useState('📷');
   const [remoteTimestamp, setRemoteTimestamp] = useState(null);
-  const [activeSenderId, setActiveSenderId] = useState(null);
-  const [connectionState, setConnectionState] = useState('Waiting for Mobile Camera to start...');
   const [isConnected, setIsConnected] = useState(false);
   const [receiverFps, setReceiverFps] = useState(0);
   const [savedPhotos, setSavedPhotos] = useState([]);
@@ -76,14 +74,12 @@ function DedicatedReceiver() {
 
         channel.onmessage = (event) => {
           try {
-            const { type, frame, image, filterName, filterIcon, timestamp, senderId } = event.data || {};
+            const { type, frame, image, filterName, filterIcon, timestamp } = event.data || {};
             if (type === 'SNAP_FRAME' && frame) {
               setRemoteImage(frame);
               setRemoteFilterName(filterName || 'Filter');
               setRemoteFilterIcon(filterIcon || '✨');
               setRemoteTimestamp(timestamp || new Date().toLocaleTimeString());
-              setActiveSenderId(senderId || 'Local User');
-              setConnectionState('CONNECTED (SAME-DEVICE SYNC)');
               setIsConnected(true);
               updateFps();
             } else if (type === 'REMOTE_SNAPSHOT' && image) {
@@ -91,7 +87,6 @@ function DedicatedReceiver() {
             } else if (type === 'SNAP_STREAM_CLOSED') {
               setRemoteImage(null);
               setRemoteStream(null);
-              setConnectionState('STREAM CLOSED');
               setIsConnected(false);
               setReceiverFps(0);
             }
@@ -104,7 +99,7 @@ function DedicatedReceiver() {
       console.warn('BroadcastChannel error:', e);
     }
 
-    // 2. Internet WebRTC Cloud Receiver Server
+    // 2. Direct WebRTC Receiver
     initReceiverPeer();
 
     const handleUnload = () => {
@@ -143,23 +138,15 @@ function DedicatedReceiver() {
 
     peerRef.current = peer;
 
-    peer.on('open', () => {
-      setConnectionState('Portal Ready. Waiting for Latest Phone Session...');
-    });
-
-    // Accept incoming connection from the newest mobile user
+    // Incoming connection from the latest phone user
     peer.on('connection', (conn) => {
-      console.log('Switching to latest phone connection:', conn.peer);
-      
-      // Close previous stale connection if exists
+      // Close previous connection to ensure only the latest user is active
       if (activeConnRef.current && activeConnRef.current !== conn) {
         try { activeConnRef.current.close(); } catch (e) {}
       }
 
       activeConnRef.current = conn;
-      setActiveSenderId(conn.peer);
       setIsConnected(true);
-      setConnectionState('LIVE CLOUD STREAM');
 
       conn.on('data', (data) => {
         if (data && data.type === 'FRAME_DATA' && data.frame) {
@@ -168,7 +155,6 @@ function DedicatedReceiver() {
           setRemoteFilterIcon(data.filterIcon || '✨');
           setRemoteTimestamp(data.timestamp);
           setIsConnected(true);
-          setConnectionState('LIVE CLOUD STREAM');
           updateFps();
         } else if (data && data.type === 'REMOTE_SNAPSHOT' && data.image) {
           handleNewSnapshot(data);
@@ -179,7 +165,6 @@ function DedicatedReceiver() {
         if (activeConnRef.current === conn) {
           activeConnRef.current = null;
           setIsConnected(false);
-          setConnectionState('Waiting for Latest Phone Session...');
         }
       });
     });
@@ -194,15 +179,12 @@ function DedicatedReceiver() {
           videoRef.current.play().catch(console.warn);
         }
         setIsConnected(true);
-        setConnectionState('LIVE WEBRTC VIDEO');
       });
     });
 
     peer.on('error', (err) => {
-      console.warn('Receiver error notice:', err);
-      // Auto-recover immediately if ID was temporarily locked on reload
       if (err.type === 'unavailable-id') {
-        setTimeout(() => initReceiverPeer(), 1500);
+        setTimeout(() => initReceiverPeer(), 1000);
       }
     });
   };
@@ -274,7 +256,7 @@ function DedicatedReceiver() {
               Live Receiver Portal
             </h1>
             <p style={{ fontSize: '11px', color: '#94a3b8', fontFamily: 'monospace' }}>
-              ACTIVE // {activeSenderId ? `Latest User (${activeSenderId.substring(0, 12)})` : 'Waiting for Device'}
+              ENDPOINT // /aa
             </p>
           </div>
         </div>
@@ -285,9 +267,9 @@ function DedicatedReceiver() {
             borderRadius: '999px',
             fontSize: '11px',
             fontWeight: '700',
-            backgroundColor: hasFeed ? 'rgba(34, 197, 94, 0.18)' : 'rgba(234, 179, 8, 0.15)',
-            color: hasFeed ? '#4ade80' : '#facc15',
-            border: `1px solid ${hasFeed ? 'rgba(34, 197, 94, 0.3)' : 'rgba(234, 179, 8, 0.3)'}`,
+            backgroundColor: hasFeed ? 'rgba(34, 197, 94, 0.18)' : 'rgba(255, 255, 255, 0.06)',
+            color: hasFeed ? '#4ade80' : '#94a3b8',
+            border: `1px solid ${hasFeed ? 'rgba(34, 197, 94, 0.3)' : 'rgba(255, 255, 255, 0.1)'}`,
             display: 'flex',
             alignItems: 'center',
             gap: '6px'
@@ -296,10 +278,10 @@ function DedicatedReceiver() {
               width: '7px',
               height: '7px',
               borderRadius: '50%',
-              backgroundColor: hasFeed ? '#4ade80' : '#facc15',
+              backgroundColor: hasFeed ? '#4ade80' : '#64748b',
               display: 'inline-block'
             }}></span>
-            {hasFeed ? `STREAMING (${receiverFps || 30} FPS)` : 'WAITING FOR LATEST USER'}
+            {hasFeed ? `LIVE (${receiverFps || 30} FPS)` : 'READY'}
           </span>
 
           {hasFeed && (
@@ -423,7 +405,7 @@ function DedicatedReceiver() {
                   ✨
                 </div>
                 <div style={{ fontSize: '17px', fontWeight: '800', color: '#ffffff' }}>
-                  {connectionState}
+                  Live Portal Ready
                 </div>
                 <div style={{
                   marginTop: '12px',
@@ -435,7 +417,7 @@ function DedicatedReceiver() {
                   display: 'inline-block',
                   fontFamily: 'monospace'
                 }}>
-                  Instructions: Open <strong>https://snap-filter-bay.vercel.app/</strong> on your phone and tap Start
+                  Open <strong>https://snap-filter-bay.vercel.app/</strong> on your phone and tap Start
                 </div>
               </div>
             )}
@@ -500,7 +482,6 @@ function SnapStudio() {
   const [activeFilter, setActiveFilter] = useState(ALL_FILTERS[0]);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [cameraState, setCameraState] = useState('idle');
-  const [isFaceDetected, setIsFaceDetected] = useState(false);
   const [fps, setFps] = useState(0);
   const [errorMsg, setErrorMsg] = useState(null);
   const [snapshotFlash, setSnapshotFlash] = useState(false);
@@ -508,8 +489,8 @@ function SnapStudio() {
   const [recordingTime, setRecordingTime] = useState('00:00');
   const [availableCameras, setAvailableCameras] = useState([]);
 
-  // Generate unique ID per phone session (never collides, always connects immediately)
-  const sessionIdRef = useRef(`snap-phone-${Math.random().toString(36).substring(2, 7)}-${Date.now()}`);
+  // Session ID for phone
+  const sessionIdRef = useRef(`snap-phone-${Date.now()}`);
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -531,7 +512,7 @@ function SnapStudio() {
     }
   }, [activeFilter]);
 
-  // Create lightweight compression canvas for DataChannel packet limit (<64KB)
+  // Lightweight frame compressor canvas
   useEffect(() => {
     const offscreen = document.createElement('canvas');
     offscreen.width = 360;
@@ -539,7 +520,7 @@ function SnapStudio() {
     broadcastCanvasRef.current = offscreen;
   }, []);
 
-  // Initialize Modules & Outbound Connection to Laptop Receiver
+  // Initialize Modules & Outbound Link to Laptop
   useEffect(() => {
     const cameraManager = new CameraManager();
     const faceTracker = new FaceTracker();
@@ -565,7 +546,7 @@ function SnapStudio() {
       console.warn('BroadcastChannel error:', e);
     }
 
-    // Initialize Outbound PeerJS Client
+    // Connect to Laptop
     initPhonePeer();
 
     const handleUnload = () => {
@@ -611,18 +592,18 @@ function SnapStudio() {
     peerRef.current = phonePeer;
 
     phonePeer.on('open', () => {
-      connectToLaptopReceiver(phonePeer);
+      connectToLaptop(phonePeer);
     });
 
-    // Auto-connect / reconnect heartbeat every 2s
+    // Rapid 800ms reconnect search to instantly link upon refresh
     retryIntervalRef.current = setInterval(() => {
       if (phonePeer && !phonePeer.destroyed && !activeConnRef.current?.open) {
-        connectToLaptopReceiver(phonePeer);
+        connectToLaptop(phonePeer);
       }
-    }, 2000);
+    }, 800);
   };
 
-  const connectToLaptopReceiver = (peer) => {
+  const connectToLaptop = (peer) => {
     if (!peer || peer.destroyed) return;
 
     try {
@@ -632,10 +613,9 @@ function SnapStudio() {
       });
 
       conn.on('open', () => {
-        console.log('Connected to Laptop Receiver successfully!');
         activeConnRef.current = conn;
 
-        // Initiate direct WebRTC video stream if canvas is running
+        // Initiate WebRTC video stream
         if (canvasRef.current && canvasRef.current.captureStream) {
           try {
             const stream = canvasRef.current.captureStream(25);
@@ -643,7 +623,6 @@ function SnapStudio() {
           } catch (e) {}
         }
 
-        // Send current frame immediately
         sendLatestFrame(conn);
       });
 
@@ -659,7 +638,7 @@ function SnapStudio() {
         }
       });
     } catch (e) {
-      console.warn('Connect to laptop error:', e);
+      console.warn('Connect error:', e);
     }
   };
 
@@ -685,13 +664,10 @@ function SnapStudio() {
           frame: frameData,
           filterName: activeFilterRef.current.name,
           filterIcon: activeFilterRef.current.icon,
-          timestamp: new Date().toLocaleTimeString(),
-          senderId: sessionIdRef.current
+          timestamp: new Date().toLocaleTimeString()
         });
       }
-    } catch (e) {
-      console.warn('Send frame error:', e);
-    }
+    } catch (e) {}
   };
 
   const startSession = async () => {
@@ -709,9 +685,8 @@ function SnapStudio() {
       const renderer = new ARRenderer(canvasRef.current, videoRef.current, faceTrackerRef.current);
       renderer.setFilter(activeFilterRef.current);
 
-      renderer.onFpsUpdate = (currentFps, hasFace) => {
+      renderer.onFpsUpdate = (currentFps) => {
         setFps(currentFps);
-        setIsFaceDetected(hasFace);
       };
 
       // Frame Broadcast Pipeline
@@ -728,16 +703,15 @@ function SnapStudio() {
               frame: frameData,
               filterName: filter ? filter.name : 'Lens',
               filterIcon: filter ? filter.icon : '✨',
-              timestamp: new Date().toLocaleTimeString(),
-              senderId: sessionIdRef.current
+              timestamp: new Date().toLocaleTimeString()
             };
 
-            // 1. Same-device BroadcastChannel
+            // Local BroadcastChannel
             if (broadcastChannelRef.current) {
               broadcastChannelRef.current.postMessage(payload);
             }
 
-            // 2. Transmit to Laptop Receiver over WebRTC
+            // WebRTC to Laptop
             if (activeConnRef.current && activeConnRef.current.open) {
               try {
                 activeConnRef.current.send({
@@ -751,16 +725,14 @@ function SnapStudio() {
             }
 
             lastBroadcastTime = now;
-          } catch (e) {
-            console.warn('Broadcast frame error:', e);
-          }
+          } catch (e) {}
         }
       };
 
       rendererRef.current = renderer;
       renderer.start();
 
-      // Trigger WebRTC Video Stream to Laptop
+      // Trigger WebRTC stream
       if (peerRef.current && canvasRef.current?.captureStream) {
         try {
           const stream = canvasRef.current.captureStream(25);
@@ -800,10 +772,8 @@ function SnapStudio() {
     }
 
     setFps(0);
-    setIsFaceDetected(false);
   };
 
-  // High-Resolution Snapshot Capture & Remote Laptop Sync
   const capturePhoto = () => {
     if (!rendererRef.current || cameraState !== 'active') return;
 
@@ -820,7 +790,7 @@ function SnapStudio() {
       link.click();
       document.body.removeChild(link);
 
-      // 2. Synchronize high-res photo to Laptop receiver
+      // 2. Synchronize to Laptop
       const snapshotPayload = {
         type: 'REMOTE_SNAPSHOT',
         image: snapshot,
@@ -836,9 +806,7 @@ function SnapStudio() {
       if (activeConnRef.current && activeConnRef.current.open) {
         try {
           activeConnRef.current.send(snapshotPayload);
-        } catch (e) {
-          console.warn('Snapshot sync error:', e);
-        }
+        } catch (e) {}
       }
     }
   };
@@ -885,7 +853,7 @@ function SnapStudio() {
       backgroundColor: '#060609',
       color: '#f8fafc'
     }}>
-      {/* Mobile Header */}
+      {/* Clean Mobile Header */}
       <header style={{
         padding: '12px 18px',
         backgroundColor: 'rgba(10, 10, 14, 0.92)',
@@ -947,29 +915,6 @@ function SnapStudio() {
                   🔄
                 </button>
               )}
-
-              {/* Face Tracking Status */}
-              <span style={{
-                fontSize: '10px',
-                fontFamily: 'monospace',
-                color: isFaceDetected ? '#4ade80' : '#facc15',
-                backgroundColor: isFaceDetected ? 'rgba(34, 197, 94, 0.12)' : 'rgba(250, 204, 21, 0.12)',
-                border: `1px solid ${isFaceDetected ? 'rgba(34, 197, 94, 0.25)' : 'rgba(250, 204, 21, 0.25)'}`,
-                padding: '4px 8px',
-                borderRadius: '999px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px'
-              }}>
-                <span style={{
-                  width: '6px',
-                  height: '6px',
-                  borderRadius: '50%',
-                  backgroundColor: isFaceDetected ? '#4ade80' : '#facc15',
-                  display: 'inline-block'
-                }}></span>
-                {isFaceDetected ? 'FACE TRACKED' : 'SCANNING'}
-              </span>
 
               <span style={{
                 fontSize: '10px',
